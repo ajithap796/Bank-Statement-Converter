@@ -323,6 +323,30 @@
               </div>
             </div>
 
+            <!-- Dynamic Slicer Toolbar -->
+            <div id="slicerSection" class="px-5 py-2.5 bg-slate-50/70 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-850 flex flex-wrap items-center gap-2 select-none text-[11px]">
+              <span class="font-bold text-slate-500 dark:text-slate-400 flex items-center mr-1">
+                <i class="fa-solid fa-filter text-blue-500 mr-1.5 text-[10px]"></i> Slicer Filter:
+              </span>
+              <button onclick="setSlicerFilter('all')" id="slicer-all" class="slicer-chip px-3 py-1 rounded-full font-bold transition-all bg-blue-600 text-white dark:bg-blue-600 dark:text-white cursor-pointer hover:opacity-90 shadow-sm flex items-center gap-1.5">
+                <span>All</span>
+                <span id="slicer-all-count" class="bg-white/20 dark:bg-black/20 text-[9px] px-1.5 py-0.5 rounded-full font-mono font-bold">0</span>
+              </button>
+              <button onclick="setSlicerFilter('system_reconciliation')" id="slicer-system_reconciliation" class="slicer-chip px-3 py-1 rounded-full font-bold transition-all bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-755 dark:text-slate-200 cursor-pointer shadow-sm flex items-center gap-1.5">
+                <i class="fa-solid fa-wand-magic-sparkles text-indigo-500 text-[10px]"></i>
+                <span>System Reconstructions</span>
+                <span id="slicer-system-count" class="bg-indigo-150/70 border border-indigo-200 dark:border-indigo-900 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 text-[9px] px-1.5 py-0.5 rounded-full font-mono font-bold">0</span>
+              </button>
+              <button onclick="setSlicerFilter('credits')" id="slicer-credits" class="slicer-chip px-3 py-1 rounded-full font-bold transition-all bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-755 dark:text-slate-200 cursor-pointer shadow-sm flex items-center gap-1.5">
+                <span>Deposits & Credits</span>
+                <span id="slicer-credits-count" class="bg-slate-200/60 dark:bg-slate-700/60 text-[9px] px-1.5 py-0.5 rounded-full font-mono font-bold">0</span>
+              </button>
+              <button onclick="setSlicerFilter('debits')" id="slicer-debits" class="slicer-chip px-3 py-1 rounded-full font-bold transition-all bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-755 dark:text-slate-200 cursor-pointer shadow-sm flex items-center gap-1.5">
+                <span>Withdrawals & Debits</span>
+                <span id="slicer-debits-count" class="bg-slate-200/60 dark:bg-slate-700/60 text-[9px] px-1.5 py-0.5 rounded-full font-mono font-bold">0</span>
+              </button>
+            </div>
+
             <!-- Scrollable Table Container -->
             <div class="overflow-auto max-h-[580px] min-w-full relative scrollbar-thin rounded-b-xl">
               <table class="min-w-full divide-y divide-slate-200 dark:divide-slate-850 w-full table-fixed border-collapse">
@@ -587,6 +611,26 @@
       // 1b. History / Undo-Redo variables & methods
       let undoStack = [];
       let redoStack = [];
+
+      // 1c. Slicer Filtering options
+      let activeLedgerFilter = 'all';
+
+      function setSlicerFilter(filterType) {
+        activeLedgerFilter = filterType;
+        
+        // Update active styling of slicer chips
+        const chips = document.querySelectorAll('.slicer-chip');
+        chips.forEach(chip => {
+          if (chip.id === `slicer-${filterType}`) {
+            chip.className = "slicer-chip px-3 py-1 rounded-full font-bold transition-all bg-blue-600 text-white dark:bg-blue-600 dark:text-white cursor-pointer hover:opacity-90 shadow-sm flex items-center gap-1.5";
+          } else {
+            chip.className = "slicer-chip px-3 py-1 rounded-full font-bold transition-all bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-800 dark:hover:bg-slate-755 dark:text-slate-200 cursor-pointer shadow-sm flex items-center gap-1.5";
+          }
+        });
+
+        renderTable();
+        addLog(`Ledger filtered by: ${filterType === 'all' ? 'All Rows' : filterType === 'system_reconciliation' ? 'System Reconstructions' : filterType}`, "text-indigo-400 font-semibold");
+      }
 
       function saveStateToHistory() {
         const state = {
@@ -1022,9 +1066,60 @@
         const body = document.getElementById('ledgerTableBody');
         body.innerHTML = '';
 
-        document.getElementById('rowCountBadge').textContent = `${transactions.length} Rows`;
+        // Dynamic Slicer Counts calculation
+        let countSystemRec = 0;
+        let countCredits = 0;
+        let countDebits = 0;
 
         transactions.forEach((tx, i) => {
+          if (i === 0) return;
+          const lowerPart = (tx.particulars || '').toLowerCase();
+          if (lowerPart.includes('system reconciliation') || lowerPart.includes('reconstructed')) {
+            countSystemRec++;
+          }
+          if (tx.credits && parseFloat(tx.credits) > 0) {
+            countCredits++;
+          }
+          if (tx.debits && parseFloat(tx.debits) > 0) {
+            countDebits++;
+          }
+        });
+
+        // Update badges
+        const badgeAll = document.getElementById('slicer-all-count');
+        const badgeSystem = document.getElementById('slicer-system-count');
+        const badgeCredits = document.getElementById('slicer-credits-count');
+        const badgeDebits = document.getElementById('slicer-debits-count');
+
+        if (badgeAll) badgeAll.textContent = transactions.length;
+        if (badgeSystem) badgeSystem.textContent = countSystemRec;
+        if (badgeCredits) badgeCredits.textContent = countCredits;
+        if (badgeDebits) badgeDebits.textContent = countDebits;
+
+        let visibleCount = 0;
+
+        transactions.forEach((tx, i) => {
+          // Check matching for activeLedgerFilter
+          const lowerPart = (tx.particulars || '').toLowerCase();
+          let matches = true;
+
+          if (activeLedgerFilter === 'system_reconciliation') {
+            matches = lowerPart.includes('system reconciliation') || lowerPart.includes('reconstructed');
+          } else if (activeLedgerFilter === 'credits') {
+            matches = tx.credits && parseFloat(tx.credits) > 0;
+          } else if (activeLedgerFilter === 'debits') {
+            matches = tx.debits && parseFloat(tx.debits) > 0;
+          }
+
+          // If filtering and it's row 0 (Opening Balance), we can hide it for non-all filters to avoid cluttering specific views
+          if (activeLedgerFilter !== 'all' && i === 0) {
+            matches = false;
+          }
+
+          if (!matches) return;
+
+          visibleCount++;
+
           const row = document.createElement('tr');
           row.className = i === 0 
             ? "bg-slate-100/50 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 font-semibold" 
@@ -1107,6 +1202,9 @@
           `;
           body.appendChild(row);
         });
+
+        // Set rowCountBadge to match physical row visibility count
+        document.getElementById('rowCountBadge').textContent = `${visibleCount} Rows`;
       }
 
       function updateOpeningBalanceFromTable(value) {
