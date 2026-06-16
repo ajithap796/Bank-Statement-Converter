@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AJ v1.0 - Advanced Bank Statement Converter</title>
+    <title>AJ v2.0 - Advanced Bank Statement Converter</title>
     <!-- Google Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <!-- Tailwind CSS Play CDN -->
@@ -106,7 +106,7 @@
         <div>
           <h1 class="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
             AJ Innovation & Design 
-            <span class="text-blue-600 dark:text-blue-400 font-mono text-[10px] bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded font-bold">Converter v1.0</span>
+            <span class="text-blue-600 dark:text-blue-400 font-mono text-[10px] bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded font-bold font-semibold">Converter v2.0</span>
           </h1>
           <p class="text-[9px] text-slate-400 dark:text-slate-550 uppercase tracking-widest font-bold mt-0.5">Dual-Engine Parser & Integrity Ledger</p>
         </div>
@@ -182,18 +182,44 @@
         <section class="md:col-span-4 flex flex-col space-y-6">
           
           <!-- Dropzone file attachments ingest -->
-          <div class="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-850 shadow-sm flex flex-col space-y-3">
+          <div class="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-850 shadow-sm flex flex-col space-y-4">
             <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-550 flex items-center">
+              <i class="fa-solid fa-building-columns mr-2 text-indigo-500"></i> Setup Target Bank
+            </h2>
+            <div class="grid grid-cols-3 gap-2 text-[10px] select-none">
+              <button onclick="setTargetBank('others')" id="bank-others" class="bank-chip py-1.5 px-2 rounded-xl font-bold border transition-all text-center flex flex-col items-center justify-center gap-1 cursor-pointer bg-blue-50/70 border-blue-250 text-blue-700 dark:bg-blue-950/40 dark:border-blue-900 dark:text-blue-400 shadow-sm">
+                <i class="fa-solid fa-globe text-xs"></i>
+                <span>Others (Default)</span>
+              </button>
+              <button onclick="setTargetBank('axis')" id="bank-axis" class="bank-chip py-1.5 px-2 rounded-xl font-bold border transition-all text-center flex flex-col items-center justify-center gap-1 cursor-pointer bg-slate-50/50 hover:bg-slate-100 border-slate-200/80 text-slate-650 dark:bg-slate-950/20 dark:border-slate-805 dark:text-slate-400">
+                <i class="fa-solid fa-landmark text-xs text-rose-500"></i>
+                <span>Axis Bank</span>
+              </button>
+              <button onclick="setTargetBank('csb')" id="bank-csb" class="bank-chip py-1.5 px-2 rounded-xl font-bold border transition-all text-center flex flex-col items-center justify-center gap-1 cursor-pointer bg-slate-50/50 hover:bg-slate-100 border-slate-200/80 text-slate-650 dark:bg-slate-950/20 dark:border-slate-805 dark:text-slate-400">
+                <i class="fa-solid fa-building text-xs text-amber-500"></i>
+                <span>CSB Bank</span>
+              </button>
+            </div>
+
+            <!-- Disclaimer alert block -->
+            <div class="p-3 bg-amber-500/10 dark:bg-amber-950/20 border border-amber-500/20 dark:border-amber-900/30 rounded-xl flex items-start gap-2.5 text-[9px] animate-fade-in">
+              <i class="fa-solid fa-circle-info text-amber-600 dark:text-amber-400 mt-0.5 text-xs"></i>
+              <div class="text-amber-800 dark:text-amber-450 leading-relaxed font-semibold">
+                <strong>Disclaimer:</strong> This application utilizes "System Reconstructions" to programmatically patch transaction gaps or missed entries. Please note that sub-optimal extractions or minor errors may occur under certain conditions and will be corrected in future updates.
+              </div>
+            </div>
+
+            <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-555 flex items-center pt-2 border-t border-slate-100 dark:border-slate-800/60">
               <i class="fa-solid fa-microchip mr-2 text-blue-500"></i> Local Ingestion Engine
             </h2>
             
             <div id="dropZone" class="border-2 border-dashed border-blue-200 dark:border-slate-850 hover:border-blue-500 dark:hover:border-blue-550 bg-blue-50/20 dark:bg-slate-950/40 hover:bg-blue-50/40 dark:hover:bg-blue-950/20 rounded-2xl p-6 transition-all duration-200 text-center cursor-pointer flex flex-col items-center justify-center group relative animate-fade-in">
-              <input type="file" id="fileInput" accept=".pdf,image/png,image/jpeg,image/webp" multiple class="hidden" />
+              <input type="file" id="fileInput" accept=".pdf,image/png,image/jpeg,image/webp,.xlsx,.xls,.csv" multiple class="hidden" />
               <div class="bg-blue-600 text-white p-3 rounded-full mb-2 group-hover:scale-105 transition-transform flex items-center justify-center w-10 h-10">
                 <i class="fa-solid fa-cloud-arrow-up text-sm"></i>
               </div>
               <h3 class="text-xs font-bold text-slate-700 dark:text-white">Upload Bank Statement</h3>
-              <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-1 leading-relaxed">Drag & Drop PDF, PNG, JPG, or WEBP<br>Parsed entirely in browser memory</p>
+              <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-1 leading-relaxed">Drag & Drop PDF, Images, Excel, or CSV<br>Parsed entirely in browser memory</p>
             </div>
 
             <!-- Uploaded file queue elements list -->
@@ -454,7 +480,7 @@
     <!-- FOOTER LICENSES -->
     <footer class="border-t border-slate-200 dark:border-slate-805 bg-white dark:bg-slate-900 py-4 mt-auto text-center text-[10px] text-slate-400 dark:text-slate-550 select-none">
       <div class="max-w-7xl mx-auto px-4">
-        <p class="font-bold">AJ v1.0 • Core Auditing Solutions</p>
+        <p class="font-bold">AJ v2.0 • Core Auditing Solutions</p>
         <p class="mt-0.5 opacity-75">All code compiled locally inside volatile browser memory blocks. Completely self-contained client-side processing.</p>
       </div>
     </footer>
@@ -630,6 +656,37 @@
 
         renderTable();
         addLog(`Ledger filtered by: ${filterType === 'all' ? 'All Rows' : filterType === 'system_reconciliation' ? 'System Reconstructions' : filterType}`, "text-indigo-400 font-semibold");
+      }
+
+      // 1d. Target Bank Selection State
+      let selectedBank = 'others';
+
+      function setTargetBank(bank) {
+        selectedBank = bank;
+        
+        // Update active css styles for the bank selectors
+        const chips = document.querySelectorAll('.bank-chip');
+        chips.forEach(chip => {
+          if (chip.id === `bank-${bank}`) {
+            chip.className = "bank-chip py-1.5 px-2 rounded-xl font-bold border transition-all text-center flex flex-col items-center justify-center gap-1 cursor-pointer bg-blue-50/70 border-blue-250 text-blue-700 dark:bg-blue-950/40 dark:border-blue-900 dark:text-blue-400 shadow-sm";
+          } else {
+            chip.className = "bank-chip py-1.5 px-2 rounded-xl font-bold border transition-all text-center flex flex-col items-center justify-center gap-1 cursor-pointer bg-slate-50/50 hover:bg-slate-100 border-slate-200/80 text-slate-650 dark:bg-slate-950/20 dark:border-slate-805 dark:text-slate-400";
+          }
+        });
+
+        // Auto-update output compiled report filename input
+        const nameInput = document.getElementById('exportFilename');
+        if (nameInput) {
+          if (bank === 'axis') {
+            nameInput.value = 'Axis';
+          } else if (bank === 'csb') {
+            nameInput.value = 'CSB_Statement';
+          } else {
+            nameInput.value = 'AJ_Bank_Statement_Audit';
+          }
+        }
+
+        addLog(`Target bank switched to: ${bank === 'others' ? 'Others (Default)' : bank === 'axis' ? 'Axis Bank' : 'CSB Bank'}`);
       }
 
       function saveStateToHistory() {
@@ -1527,7 +1584,7 @@
       async function handleUploadedFiles(files) {
         if (!files || files.length === 0) return;
 
-        const allowedExts = ['.pdf', '.jpg', '.jpeg', '.png', '.webp'];
+        const allowedExts = ['.pdf', '.jpg', '.jpeg', '.png', '.webp', '.xlsx', '.xls', '.csv'];
         
         // Pick only the newest uploaded file
         const file = files[files.length - 1];
@@ -1535,7 +1592,7 @@
         const isValid = allowedExts.some(ext => name.endsWith(ext));
 
         if (!isValid) {
-          addLog(`Rejected "${file.name}": Require PDF or common images formats only.`, 'text-red-500');
+          addLog(`Rejected "${file.name}": Require PDF, Images, Excel (.xlsx, .xls) or CSV formats only.`, 'text-red-500');
           return;
         }
 
@@ -1576,7 +1633,7 @@
         row.className = "flex items-center justify-between p-2 bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-805 rounded-xl text-[11px] pr-3 select-none";
         row.innerHTML = `
           <div class="flex items-center space-x-2">
-            <i class="fa-solid ${file.type === 'application/pdf' ? 'fa-file-pdf text-red-500' : 'fa-file-image text-blue-500'}"></i>
+            <i class="fa-solid ${file.type === 'application/pdf' ? 'fa-file-pdf text-red-500' : (file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xls') || file.name.toLowerCase().endsWith('.csv')) ? 'fa-file-excel text-emerald-600' : 'fa-file-image text-blue-500'}"></i>
             <span class="font-medium truncate max-w-[150px]" title="${file.name}">${file.name}</span>
           </div>
           <span id="${badgeId}" class="text-[8px] font-bold tracking-wider text-amber-600 bg-amber-100/50 px-1.5 py-0.5 rounded flex items-center space-x-1 uppercase">
@@ -1591,8 +1648,11 @@
           addLog(`Executing local offline FileReader pipelines...`);
 
           let extractedRows = [];
+          const name = file.name.toLowerCase();
           if (file.type === 'application/pdf') {
             extractedRows = await parsePDFFile(file);
+          } else if (name.endsWith('.xlsx') || name.endsWith('.xls') || name.endsWith('.csv')) {
+            extractedRows = await parseExcelOrCsvFile(file);
           } else {
             extractedRows = await parseImageOCR(file);
           }
@@ -1610,6 +1670,7 @@
           const sanitizedParsed = extractedRows.map(tx => {
             return {
               date: tx.date || transactions[0].date,
+              valueDate: tx.valueDate || tx.date || transactions[0].date,
               particulars: tx.particulars || 'Narrative Cash Transaction',
               debits: tx.debits || '',
               credits: tx.credits || '',
@@ -1617,7 +1678,9 @@
               category: tx.category || 'Others',
               amountX: tx.amountX !== undefined ? tx.amountX : null,
               originalPdfBalance: tx.originalPdfBalance || tx.balance || null,
-              sNo: tx.sNo !== undefined ? tx.sNo : null
+              sNo: tx.sNo !== undefined ? tx.sNo : null,
+              chqNo: tx.chqNo || '',
+              branchName: tx.branchName || ''
             };
           });
 
@@ -1728,6 +1791,212 @@
           else if (text === 'Failed') icon = '<i class="fa-solid fa-circle-exclamation"></i>';
           badge.innerHTML = `${icon} <span>${text}</span>`;
         }
+      }
+
+      // Excel/CSV parsing engine using local high-performance SheetJS library
+      async function parseExcelOrCsvFile(file) {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            try {
+              const data = new Uint8Array(e.target.result);
+              // Read workbook with cellDates enabled to properly parse Excel date cells
+              const workbook = XLSX.read(data, { type: 'array', cellDates: true });
+              if (workbook.SheetNames.length === 0) {
+                return reject(new Error("No sheets identified in the uploaded Excel spreadsheet."));
+              }
+              const sheetName = workbook.SheetNames[0];
+              const worksheet = workbook.Sheets[sheetName];
+              
+              // Extract raw 2D row structures to process coordinate layouts and table headings
+              const rows2D = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+              if (rows2D.length === 0) {
+                return reject(new Error("The selected Excel sheet was found to contain no data rows."));
+              }
+
+              // Identify schema headers dynamically by searching row cells for matching ledger keys
+              let headerRowIdx = -1;
+              let colIndices = {
+                date: -1,
+                valueDate: -1,
+                particulars: -1,
+                debits: -1,
+                credits: -1,
+                balance: -1,
+                chqNo: -1,
+                branchName: -1
+              };
+
+              for (let rIdx = 0; rIdx < rows2D.length; rIdx++) {
+                const row = rows2D[rIdx];
+                let dateCol = -1, partCol = -1, moneyColsCount = 0;
+                
+                row.forEach((cell, cIdx) => {
+                  const val = String(cell).toLowerCase().trim();
+                  if (val.includes('date') || val.includes('post date') || val.includes('tran')) {
+                    dateCol = cIdx;
+                  }
+                  if (val.includes('particular') || val.includes('description') || val.includes('narration') || val.includes('narrative')) {
+                    partCol = cIdx;
+                  }
+                  if (val.includes('withdraw') || val.includes('debit') || val.includes('deposit') || val.includes('credit') || val.includes('balance') || val.includes('amount')) {
+                    moneyColsCount++;
+                  }
+                });
+
+                if (dateCol !== -1 && partCol !== -1 && moneyColsCount >= 1) {
+                  headerRowIdx = rIdx;
+                  break;
+                }
+              }
+
+              // Fallback heading block heuristic search: look for first row with common banking vocabularies
+              if (headerRowIdx === -1) {
+                for (let rIdx = 0; rIdx < Math.min(rows2D.length, 15); rIdx++) {
+                  const row = rows2D[rIdx];
+                  let hits = 0;
+                  row.forEach(cell => {
+                    const val = String(cell).toLowerCase().trim();
+                    if (/date|particular|desc|debit|credit|balance|withdraw|deposit|narration/i.test(val)) {
+                      hits++;
+                    }
+                  });
+                  if (hits >= 2) {
+                    headerRowIdx = rIdx;
+                    break;
+                  }
+                }
+              }
+
+              // Default standard first row mapping if discovery heuristics fail completely
+              if (headerRowIdx === -1) {
+                headerRowIdx = 0;
+              }
+
+              // Align identified indices with respective columns mapping arrays
+              const headerRow = rows2D[headerRowIdx];
+              headerRow.forEach((cell, cIdx) => {
+                const val = String(cell).toLowerCase().trim();
+                if (val.includes('value date')) colIndices.valueDate = cIdx;
+                else if (val.includes('date') || val.includes('tran')) colIndices.date = cIdx;
+                
+                if (val.includes('particular') || val.includes('desc') || val.includes('narrat') || val.includes('remark')) colIndices.particulars = cIdx;
+                
+                if (val.includes('withdraw') || val.includes('debit') || val.includes('spent') || (val.includes('dr') && !val.includes('particulars'))) colIndices.debits = cIdx;
+                else if (val.includes('deposit') || val.includes('credit') || val.includes('received') || (val.includes('cr') && !val.includes('particulars'))) colIndices.credits = cIdx;
+                else if (val.includes('balance') || val.includes('bal')) colIndices.balance = cIdx;
+                
+                if (val.includes('chq') || val.includes('cheque') || val.includes('ref')) colIndices.chqNo = cIdx;
+                if (val.includes('branch') || val.includes('sol')) colIndices.branchName = cIdx;
+              });
+
+              // Apply coordinate indices fallback mappings if not explicitly resolved by names
+              if (colIndices.date === -1) {
+                for (let r = headerRowIdx + 1; r < Math.min(rows2D.length, headerRowIdx + 5); r++) {
+                  rows2D[r].forEach((cell, cIdx) => {
+                    if (cell instanceof Date || /^\d{1,2}[-\/\.]\d{1,2}[-\/\.]\d{2,4}/.test(String(cell))) {
+                      if (colIndices.date === -1) colIndices.date = cIdx;
+                    }
+                  });
+                }
+              }
+              if (colIndices.particulars === -1) colIndices.particulars = colIndices.date + 1;
+              if (colIndices.debits === -1) colIndices.debits = colIndices.particulars + 1;
+              if (colIndices.credits === -1) colIndices.credits = colIndices.particulars + 2;
+              if (colIndices.balance === -1) colIndices.balance = colIndices.particulars + 3;
+
+              addLog(`Excel Parser Configured: Date -> Col ${colIndices.date}, Particulars -> Col ${colIndices.particulars}, Debit -> Col ${colIndices.debits}, Credit -> Col ${colIndices.credits}, Balance -> Col ${colIndices.balance}`);
+
+              // Scan transaction line blocks
+              const transactionsExtracted = [];
+              let activeTx = null;
+
+              for (let rIdx = headerRowIdx + 1; rIdx < rows2D.length; rIdx++) {
+                const row = rows2D[rIdx];
+                if (!row || row.length === 0) continue;
+
+                const dateVal = row[colIndices.date];
+                const particularsVal = String(row[colIndices.particulars] || '').trim();
+                const debitVal = String(row[colIndices.debits] || '').trim();
+                const creditVal = String(row[colIndices.credits] || '').trim();
+                const balanceVal = String(row[colIndices.balance] || '').trim();
+                const chqVal = String(colIndices.chqNo !== -1 ? row[colIndices.chqNo] || '' : '').trim();
+                const branchVal = String(colIndices.branchName !== -1 ? row[colIndices.branchName] || '' : '').trim();
+
+                // Skip meta-rows or empty opening balance listings
+                if (particularsVal.toLowerCase().includes('opening balance') || particularsVal.toLowerCase().includes('brought forward')) {
+                  continue;
+                }
+
+                // Format row dates consistently
+                let rowDate = '';
+                if (dateVal) {
+                  if (dateVal instanceof Date) {
+                    rowDate = dateVal.toISOString().split('T')[0];
+                  } else {
+                    rowDate = String(dateVal).trim();
+                  }
+                }
+
+                const isNumeric = (val) => {
+                  if (!val) return false;
+                  const clean = val.replace(/,/g, '').trim();
+                  return !isNaN(parseFloat(clean)) && isFinite(clean);
+                };
+
+                const cleanNum = (val) => {
+                  if (!val || val === '0' || val === '0.00' || val === '-') return '';
+                  return val.replace(/,/g, '').trim();
+                };
+
+                const isDateValid = rowDate && (dateVal instanceof Date || /\d/.test(rowDate));
+
+                if (isDateValid && (isNumeric(debitVal) || isNumeric(creditVal) || isNumeric(balanceVal))) {
+                  if (activeTx) {
+                    transactionsExtracted.push(activeTx);
+                  }
+
+                  let valueDateStr = rowDate;
+                  if (colIndices.valueDate !== -1 && row[colIndices.valueDate]) {
+                    const vdVal = row[colIndices.valueDate];
+                    valueDateStr = vdVal instanceof Date ? vdVal.toISOString().split('T')[0] : String(vdVal).trim();
+                  }
+
+                  activeTx = {
+                    date: rowDate,
+                    valueDate: valueDateStr,
+                    particulars: particularsVal,
+                    debits: cleanNum(debitVal),
+                    credits: cleanNum(creditVal),
+                    balance: cleanNum(balanceVal),
+                    category: 'Others',
+                    sNo: null,
+                    chqNo: chqVal,
+                    branchName: branchVal
+                  };
+                } else if (activeTx && particularsVal && !isNumeric(debitVal) && !isNumeric(creditVal) && !isNumeric(balanceVal)) {
+                  // Merge multi-line description wrap narratives
+                  activeTx.particulars += " " + particularsVal;
+                }
+              }
+
+              if (activeTx) {
+                transactionsExtracted.push(activeTx);
+              }
+
+              // Clean trailing spacing narratives
+              transactionsExtracted.forEach(tx => {
+                tx.particulars = tx.particulars.replace(/\s+/g, ' ').replace(/^[\s,.\-\/]+|[\s,.\-\/]+$/g, '').trim();
+              });
+
+              resolve(transactionsExtracted);
+            } catch (err) {
+              reject(new Error("Failed to process Excel worksheets structures: " + err.message));
+            }
+          };
+          reader.onerror = () => reject(new Error("Inbound binary spreadsheet read failure."));
+          reader.readAsArrayBuffer(file);
+        });
       }
 
       // PDF parsing engine with decryption and speed-cached OCR
@@ -2957,12 +3226,15 @@
             // Initialize multi-line anchor transaction
             currentTx = {
               date: lineDates[0],
+              valueDate: lineDates[1] || lineDates[0],
               particulars: '',
               debits: '',
               credits: '',
               balance: '',
               category: 'Others',
-              sNo: sNoVal
+              sNo: sNoVal,
+              chqNo: '',
+              branchName: ''
             };
 
             // Non-date items filters out ANY matched dates (excluding Txn Date and Value Date) from the particulars
@@ -2977,6 +3249,15 @@
               if (!text) return;
 
               if (isNumericValue(text)) {
+                // Check if it's a 6-digit cheque number
+                const cleanText = text.trim().replace(/['"“”‘’`\s]/g, '');
+                if (/^\d{6}$/.test(cleanText)) {
+                  if (currentTx) {
+                    currentTx.chqNo = cleanText;
+                  }
+                  return; // Skip from being recognized as Debit/Credit/Balance!
+                }
+
                 // Ignore any serial numbers or indices to the left of the transaction date
                 if (dateX > 0 && it.x < dateX - 5) {
                   return;
@@ -3103,6 +3384,15 @@
                 if (!text) return;
                  
                 if (isNumericValue(text)) {
+                  // Check if it's a 6-digit cheque number
+                  const cleanText = text.trim().replace(/['"“”‘’`\s]/g, '');
+                  if (/^\d{6}$/.test(cleanText)) {
+                    if (currentTx) {
+                      currentTx.chqNo = cleanText;
+                    }
+                    return; // Skip from being recognized as Debit/Credit/Balance!
+                  }
+
                   // If we have column positions, check if this number is in the particulars zone
                   if (pageDebitsX !== null && pageCreditsX !== null) {
                     const minColX = Math.min(pageDebitsX, pageCreditsX);
@@ -3225,6 +3515,19 @@
           const cVal = parseFloat(tx.credits) || 0;
           return Math.abs(dVal) > 0 || Math.abs(cVal) > 0;
         }).map(tx => {
+          // Extract branch name before cleaning!
+          let branchName = '';
+          const branchPattern = /([A-Z\s,]+\[[A-Z]{2}\](?:\s*\(\d{3,4}\))?)\s*$/i;
+          const match = tx.particulars.match(branchPattern);
+          if (match) {
+            branchName = match[1].trim();
+          } else {
+            const mMatch = tx.particulars.match(/(MALAPPURAM(?:\s*\[[A-Z]{2}\])?(?:\s*\(\d{3,4}\))?)\s*$/i);
+            if (mMatch) {
+              branchName = mMatch[1].trim();
+            }
+          }
+          tx.branchName = branchName || tx.branchName || '';
           tx.particulars = cleanParticulars(tx.particulars);
           return tx;
         });
@@ -3329,7 +3632,27 @@
             remainder = remainder.replace(numObj.text, ' ');
           });
 
+          // Extract cheque number if any 6-digit number is found
+          let chqNo = '';
+          const chqMatch = remainder.match(/\b(\d{6})\b/);
+          if (chqMatch) {
+            chqNo = chqMatch[1];
+            remainder = remainder.replace(chqMatch[0], ' ');
+          }
+
           let particularsStr = remainder.replace(/\s+/g, ' ').replace(/^[\s,.\-\/]+|[\s,.\-\/]+$/g, '').trim();
+          
+          let branchName = '';
+          const branchPattern = /([A-Z\s,]+\[[A-Z]{2}\](?:\s*\(\d{3,4}\))?)\s*$/i;
+          const match = particularsStr.match(branchPattern);
+          if (match) {
+            branchName = match[1].trim();
+          } else {
+            const mMatch = particularsStr.match(/(MALAPPURAM(?:\s*\[[A-Z]{2}\])?(?:\s*\(\d{3,4}\))?)\s*$/i);
+            if (mMatch) {
+              branchName = mMatch[1].trim();
+            }
+          }
           particularsStr = cleanParticulars(particularsStr);
           if (!particularsStr) particularsStr = "Cash Transaction line details";
 
@@ -3399,12 +3722,15 @@
 
           transactionsExtracted.push({
             date: dateString,
+            valueDate: dateString,
             particulars: particularsStr,
             debits: dr,
             credits: cr,
             balance: bal,
             category: 'Others',
-            originalPdfBalance: bal || null
+            originalPdfBalance: bal || null,
+            chqNo: chqNo,
+            branchName: branchName
           });
         });
 
@@ -3510,21 +3836,74 @@
         // For XLSX/XLS format, build beautiful worksheets using xlsx-js-style!
         const wb = XLSX.utils.book_new();
 
+        const openingRowIndices = new Set();
+
         function createStyledWorksheet(dataList) {
           // Headers definitions
-          const headers = ["Date", "Particulars", "Debit (INR)", "Credit (INR)", "Running Balance (INR)", "Category"];
-          const aoaData = [headers];
+          let headers;
+          let aoaData;
 
-          dataList.forEach(tx => {
-            aoaData.push([
-              formatDateToDDMMYYYY(tx.date),
-              tx.particulars,
-              tx.debits ? parseFloat(tx.debits) : '',
-              tx.credits ? parseFloat(tx.credits) : '',
-              tx.balance ? parseFloat(tx.balance) : 0,
-              tx.category
-            ]);
-          });
+          if (selectedBank === 'axis') {
+            headers = ["S.No", "Transaction Date", "Value Date", "Particulars", "Debit Amount(INR)", "Credit Amount(INR)", "Balance(INR)", "Cheque Number", "Branch Name(SOL)"];
+            aoaData = [headers];
+            let seq = 1;
+            dataList.forEach((tx, sIdx) => {
+              const isOpening = tx.particulars.toLowerCase() === 'opening balance';
+              if (isOpening) {
+                openingRowIndices.add(sIdx + 1);
+              }
+              const serialNo = isOpening ? '' : (tx.sNo || seq++);
+              aoaData.push([
+                serialNo,
+                formatDateToDDMMYYYY(tx.date),
+                formatDateToDDMMYYYY(tx.valueDate || tx.date),
+                isOpening ? tx.particulars.toUpperCase() : tx.particulars,
+                tx.debits ? parseFloat(tx.debits) : (isOpening ? 0 : ''),
+                tx.credits ? parseFloat(tx.credits) : (isOpening ? 0 : ''),
+                tx.balance ? parseFloat(tx.balance) : 0,
+                isOpening ? '' : (tx.chqNo || ''),
+                isOpening ? '' : (tx.branchName || '')
+              ]);
+            });
+          } else if (selectedBank === 'csb') {
+            headers = ["Sl.No.", "Post Date", "Value Date", "Particulars", "Chq.No.", "Debit (Withdrawals)", "Credit (Deposits)", "Balance"];
+            aoaData = [headers];
+            let seq = 1;
+            dataList.forEach((tx, sIdx) => {
+              const isOpening = tx.particulars.toLowerCase() === 'opening balance';
+              if (isOpening) {
+                openingRowIndices.add(sIdx + 1);
+              }
+              const serialNo = isOpening ? '' : (tx.sNo || seq++);
+              aoaData.push([
+                serialNo,
+                formatDateToDDMMYYYY(tx.date),
+                formatDateToDDMMYYYY(tx.valueDate || tx.date),
+                isOpening ? tx.particulars.toUpperCase() : tx.particulars,
+                isOpening ? '' : (tx.chqNo || ''),
+                tx.debits ? parseFloat(tx.debits) : (isOpening ? 0 : ''),
+                tx.credits ? parseFloat(tx.credits) : (isOpening ? 0 : ''),
+                tx.balance ? parseFloat(tx.balance) : 0
+              ]);
+            });
+          } else {
+            headers = ["Date", "Particulars", "Debit (INR)", "Credit (INR)", "Running Balance (INR)", "Category"];
+            aoaData = [headers];
+            dataList.forEach((tx, sIdx) => {
+              const isOpening = tx.particulars.toLowerCase() === 'opening balance';
+              if (isOpening) {
+                openingRowIndices.add(sIdx + 1);
+              }
+              aoaData.push([
+                formatDateToDDMMYYYY(tx.date),
+                isOpening ? tx.particulars.toUpperCase() : tx.particulars,
+                tx.debits ? parseFloat(tx.debits) : (isOpening ? 0 : ''),
+                tx.credits ? parseFloat(tx.credits) : (isOpening ? 0 : ''),
+                tx.balance ? parseFloat(tx.balance) : 0,
+                isOpening ? 'System' : tx.category
+              ]);
+            });
+          }
 
           const ws = XLSX.utils.aoa_to_sheet(aoaData);
 
@@ -3562,16 +3941,33 @@
               };
             } else {
               // Data Rows: 'Times New Roman' 11pt, solid precise black gridlines around all populated blocks
-              const isNumeric = (colIdx === 2 || colIdx === 3 || colIdx === 4);
+              let isNumeric = false;
               let hAlign = 'left';
-              if (colIdx === 0 || colIdx === 5) hAlign = 'center';
-              else if (isNumeric) hAlign = 'right';
+
+              if (selectedBank === 'axis') {
+                isNumeric = (colIdx === 4 || colIdx === 5 || colIdx === 6);
+                if (colIdx === 0 || colIdx === 1 || colIdx === 2 || colIdx === 7) hAlign = 'center';
+                else if (isNumeric) hAlign = 'right';
+              } else if (selectedBank === 'csb') {
+                isNumeric = (colIdx === 5 || colIdx === 6 || colIdx === 7);
+                if (colIdx === 0 || colIdx === 1 || colIdx === 2 || colIdx === 4) hAlign = 'center';
+                else if (isNumeric) hAlign = 'right';
+              } else {
+                isNumeric = (colIdx === 2 || colIdx === 3 || colIdx === 4);
+                if (colIdx === 0 || colIdx === 5) hAlign = 'center';
+                else if (isNumeric) hAlign = 'right';
+              }
+
+              const isOpeningRow = openingRowIndices.has(rowIdx);
 
               cell.s = {
                 font: {
                   name: 'Times New Roman',
-                  sz: 11
+                  sz: 11,
+                  bold: isOpeningRow,
+                  italic: isOpeningRow
                 },
+                fill: isOpeningRow ? { fgColor: { rgb: 'F1F5F9' } } : undefined,
                 alignment: {
                   vertical: 'center',
                   horizontal: hAlign
@@ -3594,14 +3990,9 @@
           const colWidths = [];
           headers.forEach((h, colColIdx) => {
             let maxLen = h.length;
-            dataList.forEach(tx => {
-              let val = '';
-              if (colColIdx === 0) val = formatDateToDDMMYYYY(tx.date) || '';
-              else if (colColIdx === 1) val = tx.particulars || '';
-              else if (colColIdx === 2) val = tx.debits ? parseFloat(tx.debits).toFixed(2) : '';
-              else if (colColIdx === 3) val = tx.credits ? parseFloat(tx.credits).toFixed(2) : '';
-              else if (colColIdx === 4) val = tx.balance ? parseFloat(tx.balance).toFixed(2) : '';
-              else if (colColIdx === 5) val = tx.category || '';
+            dataList.forEach((tx, sIdx) => {
+              const rowVal = aoaData[sIdx + 1]?.[colColIdx];
+              const val = rowVal !== undefined && rowVal !== null ? String(rowVal) : '';
               if (val.length > maxLen) {
                 maxLen = val.length;
               }
