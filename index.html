@@ -186,7 +186,7 @@
             <h2 class="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-550 flex items-center">
               <i class="fa-solid fa-building-columns mr-2 text-indigo-500"></i> Setup Target Bank
             </h2>
-            <div class="grid grid-cols-3 gap-2 text-[10px] select-none">
+            <div class="grid grid-cols-2 gap-2 text-[10px] select-none">
               <button onclick="setTargetBank('others')" id="bank-others" class="bank-chip py-1.5 px-2 rounded-xl font-bold border transition-all text-center flex flex-col items-center justify-center gap-1 cursor-pointer bg-blue-50/70 border-blue-250 text-blue-700 dark:bg-blue-950/40 dark:border-blue-900 dark:text-blue-400 shadow-sm">
                 <i class="fa-solid fa-globe text-xs"></i>
                 <span>Others (Default)</span>
@@ -198,6 +198,10 @@
               <button onclick="setTargetBank('csb')" id="bank-csb" class="bank-chip py-1.5 px-2 rounded-xl font-bold border transition-all text-center flex flex-col items-center justify-center gap-1 cursor-pointer bg-slate-50/50 hover:bg-slate-100 border-slate-200/80 text-slate-650 dark:bg-slate-950/20 dark:border-slate-805 dark:text-slate-400">
                 <i class="fa-solid fa-building text-xs text-amber-500"></i>
                 <span>CSB Bank</span>
+              </button>
+              <button onclick="setTargetBank('dhanalaxmi')" id="bank-dhanalaxmi" class="bank-chip py-1.5 px-2 rounded-xl font-bold border transition-all text-center flex flex-col items-center justify-center gap-1 cursor-pointer bg-slate-50/50 hover:bg-slate-100 border-slate-200/80 text-slate-650 dark:bg-slate-950/20 dark:border-slate-805 dark:text-slate-400">
+                <i class="fa-solid fa-wallet text-xs text-purple-500 font-bold"></i>
+                <span>Dhanalaxmi Bank</span>
               </button>
             </div>
 
@@ -681,12 +685,14 @@
             nameInput.value = 'Axis';
           } else if (bank === 'csb') {
             nameInput.value = 'CSB_Statement';
+          } else if (bank === 'dhanalaxmi') {
+            nameInput.value = 'Dhanalaxmi_Statement';
           } else {
             nameInput.value = 'AJ_Bank_Statement_Audit';
           }
         }
 
-        addLog(`Target bank switched to: ${bank === 'others' ? 'Others (Default)' : bank === 'axis' ? 'Axis Bank' : 'CSB Bank'}`);
+        addLog(`Target bank switched to: ${bank === 'others' ? 'Others (Default)' : bank === 'axis' ? 'Axis Bank' : bank === 'csb' ? 'CSB Bank' : 'Dhanalaxmi Bank'}`);
       }
 
       function saveStateToHistory() {
@@ -2036,6 +2042,36 @@
 
         addLog(`Unlocked statement document. Scanning ${pdf.numPages} structural pages...`);
         
+        // Detect if this statement belongs to Dhanalaxmi Bank automatically
+        let isDhanalaxmi = selectedBank === 'dhanalaxmi';
+        if (!isDhanalaxmi && pdf.numPages >= 1) {
+          try {
+            const firstPage = await pdf.getPage(1);
+            const firstContent = await firstPage.getTextContent();
+            const firstPageText = firstContent.items.map(it => it.str).join(' ').toLowerCase();
+            if (firstPageText.includes('dhanlaxmi') || firstPageText.includes('dhanalaxmi') || firstPageText.includes('dlxb')) {
+              isDhanalaxmi = true;
+              selectedBank = 'dhanalaxmi';
+              const bankBtn = document.getElementById('bank-dhanalaxmi');
+              if (bankBtn) {
+                document.querySelectorAll('.bank-chip').forEach(btn => {
+                  btn.classList.remove('bg-blue-50/70', 'border-blue-250', 'text-blue-700', 'dark:bg-blue-950/40', 'dark:border-blue-900', 'dark:text-blue-400', 'shadow-sm');
+                  btn.classList.add('bg-slate-50/50', 'hover:bg-slate-100', 'border-slate-200/80', 'text-slate-650', 'dark:bg-slate-950/20', 'dark:border-slate-805', 'dark:text-slate-400');
+                });
+                bankBtn.classList.remove('bg-slate-50/50', 'hover:bg-slate-100', 'border-slate-200/80', 'text-slate-650', 'dark:bg-slate-950/20', 'dark:border-slate-805', 'dark:text-slate-400');
+                bankBtn.classList.add('bg-blue-50/70', 'border-blue-250', 'text-blue-700', 'dark:bg-blue-950/40', 'dark:border-blue-900', 'dark:text-blue-400', 'shadow-sm');
+              }
+              const nameInput = document.getElementById('exportFilename');
+              if (nameInput) {
+                nameInput.value = 'Dhanalaxmi_Statement';
+              }
+              addLog("Auto-identified statement target: Dhanalaxmi Bank", "text-indigo-400 font-bold");
+            }
+          } catch (e) {
+            console.error("Dhanalaxmi auto-detect error:", e);
+          }
+        }
+
         // Reset parser boundary triggers before scanning pages of this PDF file
         beganTransactions = false;
         finishedParsingTransactions = false;
@@ -2055,19 +2091,35 @@
           if (rawJoined.length < 15) {
             addLog(`Page ${idx} empty of selectable text. Launching OCR rendering...`, 'text-indigo-400');
             const ocrText = await runOCRCanvasPage(page, idx);
-            const regexRows = parseIndianFallbackRegexStyles(ocrText);
-            compiledResult = compiledResult.concat(regexRows);
+            let matchedRows = [];
+            if (isDhanalaxmi) {
+              const pageLines = ocrText.split('\n');
+              matchedRows = parseDhanalaxmiLocalPageLines(pageLines);
+            }
+            if (matchedRows.length === 0) {
+              matchedRows = parseIndianFallbackRegexStyles(ocrText);
+            }
+            compiledResult = compiledResult.concat(matchedRows);
           } else {
             addLog(`Parsed text layout coordinates on page ${idx}.`);
             const groupedLines = groupCoordsByLine(tContent.items);
-            const matchedRows = parseTabularSpatialLayout(groupedLines);
-            if (matchedRows.length > 0) {
-              compiledResult = compiledResult.concat(matchedRows);
-            } else {
-              const rawText = convertGroupedLinesToPlainText(groupedLines);
-              const regexRows = parseIndianFallbackRegexStyles(rawText);
-              compiledResult = compiledResult.concat(regexRows);
+            let matchedRows = [];
+            if (isDhanalaxmi) {
+              matchedRows = parseDhanalaxmiPdfItems(tContent.items);
+              if (matchedRows.length === 0) {
+                const rawText = convertGroupedLinesToPlainText(groupedLines);
+                const pageLines = rawText.split('\n');
+                matchedRows = parseDhanalaxmiLocalPageLines(pageLines);
+              }
             }
+            if (matchedRows.length === 0) {
+              matchedRows = parseTabularSpatialLayout(groupedLines);
+              if (matchedRows.length === 0) {
+                const rawText = convertGroupedLinesToPlainText(groupedLines);
+                matchedRows = parseIndianFallbackRegexStyles(rawText);
+              }
+            }
+            compiledResult = compiledResult.concat(matchedRows);
           }
         }
 
@@ -2290,7 +2342,7 @@
       // Check if a string is a valid numeric value (with optional currency or Cr/Dr markers)
       function isNumericValue(text) {
         if (!text) return false;
-        let cleaned = text.trim().replace(/[₹$]/g, '').replace(/\s*(?:Cr|Dr|cr|dr|CR|DR)\s*$/, '').trim();
+        let cleaned = text.trim().replace(/^[Bb]al(?:ance)?\s*:\s*/, '').replace(/[₹$]/g, '').replace(/\s*(?:Cr|Dr|cr|dr|CR|DR)\s*$/, '').trim();
         
         // Block consecutive dots/commas (e.g. OCR typos like "2.,7" or ".,")
         if (cleaned.includes('.,') || cleaned.includes(',.') || cleaned.includes('..') || cleaned.includes(',,')) {
@@ -2332,7 +2384,7 @@
       // Parse float value from string while discarding currency/commas/indicators
       function parseNumericValue(text) {
         if (!text) return 0;
-        let cleaned = text.trim().replace(/[₹$]/g, '').replace(/\s*(?:Cr|Dr|cr|dr|CR|DR)\s*$/, '').trim();
+        let cleaned = text.trim().replace(/^[Bb]al(?:ance)?\s*:\s*/, '').replace(/[₹$]/g, '').replace(/\s*(?:Cr|Dr|cr|dr|CR|DR)\s*$/, '').trim();
         cleaned = cleaned.replace(/,/g, '');
         return parseFloat(cleaned) || 0;
       }
@@ -3241,12 +3293,34 @@
             const nonDateItems = preProcessedItems.filter(it => {
               return !isStandaloneDate(it.text);
             });
+
+            // Check if there is an explicit balance token followed by a numeric value on this line
+            let balanceTokenX = -1;
+            const balTok = nonDateItems.find(tok => {
+              const tText = tok.text.toLowerCase().trim();
+              return tText === 'balance' || tText === 'bal' || tText.startsWith('balance:') || tText.startsWith('bal:');
+            });
+            if (balTok) {
+              const hasNumToRight = nonDateItems.some(tok => isNumericValue(tok.text) && tok.x >= balTok.x);
+              if (hasNumToRight) {
+                balanceTokenX = balTok.x;
+              }
+            }
+
             let particularsTokens = [];
             let rightmostNumbers = [];
 
             nonDateItems.forEach(it => {
               const text = it.text.trim();
               if (!text) return;
+
+              // If we identified a balance block on this line, parse out and store balance directly, ignore further accumulation
+              if (balanceTokenX !== -1 && it.x >= balanceTokenX - 5) {
+                if (isNumericValue(text) && !currentTx.balance) {
+                  currentTx.balance = parseNumericValue(text).toFixed(2);
+                }
+                return;
+              }
 
               if (isNumericValue(text)) {
                 // Check if it's a 6-digit cheque number
@@ -3375,6 +3449,19 @@
               const filteredItems = preProcessedItems.filter(it => {
                 return !isStandaloneDate(it.text);
               });
+
+              // Check if there is an explicit balance token followed by a numeric value on this merged line
+              let lineBalanceX = -1;
+              const lineBalTok = filteredItems.find(tok => {
+                const tText = tok.text.toLowerCase().trim();
+                return tText === 'balance' || tText === 'bal' || tText.startsWith('balance:') || tText.startsWith('bal:');
+              });
+              if (lineBalTok) {
+                const hasNumToRight = filteredItems.some(tok => isNumericValue(tok.text) && tok.x >= lineBalTok.x);
+                if (hasNumToRight) {
+                  lineBalanceX = lineBalTok.x;
+                }
+              }
  
               let linePartTokens = [];
               let rNumbers = [];
@@ -3382,6 +3469,14 @@
               filteredItems.forEach(it => {
                 const text = it.text.trim();
                 if (!text) return;
+
+                // If we identified a balance block on this line, parse out and store balance directly, ignore further accumulation
+                if (lineBalanceX !== -1 && it.x >= lineBalanceX - 5) {
+                  if (isNumericValue(text) && !currentTx.balance) {
+                    currentTx.balance = parseNumericValue(text).toFixed(2);
+                  }
+                  return;
+                }
                  
                 if (isNumericValue(text)) {
                   // Check if it's a 6-digit cheque number
@@ -3742,6 +3837,374 @@
         });
       }
 
+      function formatStandardDateString(dStr) {
+        if (!dStr) return '';
+        const parts = dStr.trim().split(/[\/-]/);
+        if (parts.length === 3) {
+          const dd = parts[0].padStart(2, '0');
+          const mm = parts[1].padStart(2, '0');
+          let yyyy = parts[2];
+          if (yyyy.length === 2) yyyy = '20' + yyyy;
+          return `${yyyy}-${mm}-${dd}`;
+        }
+        return dStr;
+      }
+
+      function parseDhanalaxmiPdfItems(items) {
+        const dateRegex = /\b\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}\b/g;
+        const cleanItems = (items || []).map(it => {
+          const text = (it.str || it.text || '').trim();
+          const transform = it.transform || [];
+          return {
+            text,
+            x: Number(transform[4] || it.x || 0),
+            y: Number(transform[5] || it.y || 0),
+            width: Number(it.width || 0)
+          };
+        }).filter(it => it.text);
+
+        if (cleanItems.length === 0) return [];
+
+        const dateItems = [];
+        cleanItems.forEach(it => {
+          const matches = it.text.match(dateRegex);
+          if (matches) {
+            matches.forEach(match => dateItems.push({ ...it, text: match }));
+          }
+        });
+
+        if (dateItems.length < 2) return [];
+
+        const yGroups = [];
+        dateItems.forEach(it => {
+          let group = yGroups.find(g => Math.abs(g.y - it.y) <= 4);
+          if (!group) {
+            group = { y: it.y, items: [] };
+            yGroups.push(group);
+          }
+          group.items.push(it);
+          group.y = group.items.reduce((sum, item) => sum + item.y, 0) / group.items.length;
+        });
+
+        const usableDateGroups = yGroups
+          .filter(g => g.items.length >= 2)
+          .sort((a, b) => a.y - b.y);
+        if (usableDateGroups.length === 0) return [];
+
+        const txnDateHeader = cleanItems.find(it => /txn\s*date/i.test(it.text));
+        const valueDateHeader = cleanItems.find(it => /value\s*date/i.test(it.text));
+
+        function nearestGroupTo(header, exclusions = []) {
+          if (!header) return null;
+          return usableDateGroups
+            .filter(g => !exclusions.includes(g))
+            .map(g => ({ group: g, dist: Math.abs(g.y - header.y) }))
+            .sort((a, b) => a.dist - b.dist)[0]?.group || null;
+        }
+
+        const txnDateGroup = nearestGroupTo(txnDateHeader) || usableDateGroups[0];
+        const valueDateGroup = nearestGroupTo(valueDateHeader, [txnDateGroup]) ||
+          usableDateGroups.find(g => g !== txnDateGroup) || null;
+
+        const txnDateItems = txnDateGroup.items
+          .slice()
+          .sort((a, b) => a.x - b.x);
+
+        const anchors = [];
+        txnDateItems.forEach(it => {
+          if (!anchors.some(anchor => Math.abs(anchor.x - it.x) <= 8)) {
+            anchors.push({ x: it.x, txnDate: it.text });
+          }
+        });
+
+        if (anchors.length < 2) return [];
+
+        const xDiffs = [];
+        for (let i = 1; i < anchors.length; i++) {
+          const diff = anchors[i].x - anchors[i - 1].x;
+          if (diff > 5) xDiffs.push(diff);
+        }
+        const sortedDiffs = xDiffs.slice().sort((a, b) => a - b);
+        const medianSpacing = sortedDiffs.length ? sortedDiffs[Math.floor(sortedDiffs.length / 2)] : 48;
+        const anchorTolerance = Math.max(28, Math.min(44, medianSpacing * 0.7));
+
+        function nearestAnchorItem(sourceItems, anchorX, maxDistance = anchorTolerance) {
+          return sourceItems
+            .map(it => ({ item: it, dist: Math.abs(it.x - anchorX) }))
+            .filter(hit => hit.dist <= maxDistance)
+            .sort((a, b) => a.dist - b.dist)[0]?.item || null;
+        }
+
+        const valueDateItems = valueDateGroup ? valueDateGroup.items.slice().sort((a, b) => a.x - b.x) : [];
+
+        const amountItems = cleanItems.map(it => {
+          const match = it.text.match(/\b([\d,]+\.\d{2})\s*(Cr|Dr)\b/i);
+          if (!match) return null;
+          return {
+            ...it,
+            amount: match[1].replace(/,/g, ''),
+            type: match[2].toLowerCase()
+          };
+        }).filter(Boolean);
+
+        const balanceItems = cleanItems.map(it => {
+          const match = it.text.match(/Balance\s*:?\s*([\d,]+\.\d{2})/i);
+          if (!match) return null;
+          return {
+            ...it,
+            balance: match[1].replace(/,/g, '')
+          };
+        }).filter(Boolean);
+
+        const refHeader = cleanItems.find(it => /^ref\s*no$/i.test(it.text) || /^refno$/i.test(it.text));
+        const refCandidates = refHeader ? cleanItems.filter(it => {
+          if (it === refHeader) return false;
+          if (!it.text || /^\s+$/.test(it.text)) return false;
+          if (dateRegex.test(it.text)) return false;
+          dateRegex.lastIndex = 0;
+          if (/Balance\s*:/i.test(it.text)) return false;
+          if (/\b[\d,]+\.\d{2}\s*(?:Cr|Dr)\b/i.test(it.text)) return false;
+          return Math.abs(it.y - refHeader.y) <= Math.max(48, medianSpacing);
+        }) : [];
+
+        const descHeader = cleanItems.find(it => /^description$/i.test(it.text));
+        const descUpperY = descHeader ? descHeader.y - 2 : Number.POSITIVE_INFINITY;
+        const descLowerY = (txnDateHeader || txnDateGroup)?.y !== undefined ? (txnDateHeader || txnDateGroup).y + 14 : Number.NEGATIVE_INFINITY;
+
+        function cleanParticulars(text) {
+          return (text || '')
+            .replace(/-\s+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        }
+
+        const descriptionBuckets = anchors.map(anchor => ({ anchor, items: [] }));
+        cleanItems.forEach(it => {
+          const lower = it.text.toLowerCase();
+          if (!it.text || it.y <= descLowerY || it.y >= descUpperY) return;
+          if (dateRegex.test(it.text)) {
+            dateRegex.lastIndex = 0;
+            return;
+          }
+          dateRegex.lastIndex = 0;
+          if (/\b[\d,]+\.\d{2}\s*(?:Cr|Dr)\b/i.test(it.text)) return;
+          if (/balance\s*:/i.test(it.text)) return;
+          if (/^(txn amount|refno|txn date|value date|description)$/i.test(it.text)) return;
+          if (lower.includes('available balance') || lower.includes('account number') || lower.includes('product name') || lower.includes('branch name') || lower.includes('account status')) return;
+          if (lower.includes('closing balance includes') || lower.includes('computer generated')) return;
+
+          const nearest = anchors
+            .map((anchor, idx) => ({ idx, dist: Math.abs(it.x - anchor.x) }))
+            .sort((a, b) => a.dist - b.dist)[0];
+          if (nearest && nearest.dist <= anchorTolerance) {
+            descriptionBuckets[nearest.idx].items.push(it);
+          }
+        });
+
+        return anchors.map((anchor, idx) => {
+          const valueDateItem = nearestAnchorItem(valueDateItems, anchor.x);
+          const amountItem = nearestAnchorItem(amountItems, anchor.x);
+          const balanceItem = nearestAnchorItem(balanceItems, anchor.x);
+          const refItem = nearestAnchorItem(refCandidates, anchor.x, Math.max(anchorTolerance, 35));
+
+          const parts = descriptionBuckets[idx].items
+            .slice()
+            .sort((a, b) => a.x - b.x || b.y - a.y)
+            .map(it => it.text);
+
+          const particulars = cleanParticulars(parts.join(' '));
+          const isDebit = amountItem?.type === 'dr';
+
+          return {
+            date: formatStandardDateString(anchor.txnDate),
+            valueDate: formatStandardDateString(valueDateItem?.text || anchor.txnDate),
+            particulars: particulars || 'Dhanalaxmi transaction',
+            debits: isDebit ? amountItem.amount : '',
+            credits: amountItem && !isDebit ? amountItem.amount : '',
+            balance: balanceItem?.balance || '',
+            category: 'Others',
+            originalPdfBalance: balanceItem?.balance || null,
+            amountX: amountItem ? amountItem.x : null,
+            chqNo: refItem && refItem.text !== '0' && refItem.text !== '-' ? refItem.text : '',
+            branchName: ''
+          };
+        }).filter(tx => {
+          const dVal = parseFloat(tx.debits) || 0;
+          const cVal = parseFloat(tx.credits) || 0;
+          const bVal = parseFloat(tx.balance);
+          return (dVal > 0 || cVal > 0) && !isNaN(bVal);
+        });
+      }
+
+      function parseDhanalaxmiLocalPageLines(lines) {
+        let transactionsExtracted = [];
+        let inTable = false;
+        let descriptionLines = [];
+        const dhanalaxmiDateRegex = /\b(\d{1,2}[\/-]\d{1,2}[\/-]\d{4})\b/g;
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line) continue;
+          const lowerLine = line.toLowerCase();
+
+          // End conditions: stop processing further lines to ignore statement summaries/closing statistics
+          if (
+            (lowerLine.includes('opening balance') && !line.match(dhanalaxmiDateRegex) && !lowerLine.includes('txn date')) ||
+            lowerLine.includes('closing balance') ||
+            lowerLine.includes('debit count') ||
+            lowerLine.includes('credit count') ||
+            lowerLine.includes('generated on') ||
+            lowerLine.includes('generated by') ||
+            lowerLine.includes('statement generated') ||
+            (lowerLine.startsWith('*') && !lowerLine.includes('txn date') && !line.match(dhanalaxmiDateRegex))
+          ) {
+            inTable = false;
+            break;
+          }
+
+          // Trigger table detection
+          if (!inTable) {
+            const tempDates = line.match(dhanalaxmiDateRegex);
+            if (isHeaderLine(line) || (tempDates && tempDates.length >= 2)) {
+              inTable = true;
+              descriptionLines = [];
+              if (tempDates && tempDates.length >= 2) {
+                // Keep moving to let it process in the current iteration
+              } else {
+                continue;
+              }
+            } else {
+              continue;
+            }
+          }
+
+          // Skip repeated table headers
+          if (lowerLine.includes('txn date') && (lowerLine.includes('txn amount') || lowerLine.includes('balance'))) {
+            continue;
+          }
+
+          // Parse Line: contains at least ONE date of format DD/MM/YYYY
+          const dates = line.match(dhanalaxmiDateRegex);
+
+          if (dates && dates.length >= 1) {
+            const txnDate = dates[0];
+            const valueDate = dates[1] || dates[0];
+
+            // 1. Extract balance if present on this line
+            let balanceVal = '';
+            const balMatch = line.match(/(?:Balance|Bal)\s*:?\s*([\d,]+\.\d{2})/i);
+            if (balMatch) {
+              balanceVal = balMatch[1].replace(/,/g, '');
+            }
+
+            // 2. Extract amount from this line (e.g. "731.00 Cr" or "5.90 Dr")
+            let debitVal = '';
+            let creditVal = '';
+            let amountVal = '';
+            let isCr = true;
+
+            // Let's check if the current line has an amount like "1,200.00 Cr" or "100.00 Dr"
+            const amtMatch = line.match(/\b([\d,]+\.\d{2})\s*(Cr|Dr|cr|dr|CR|DR)\b/i);
+            if (amtMatch) {
+              amountVal = amtMatch[1].replace(/,/g, '');
+              isCr = amtMatch[2].toLowerCase() === 'cr';
+              if (isCr) {
+                creditVal = amountVal;
+              } else {
+                debitVal = amountVal;
+              }
+            }
+
+            // 3. Extract RefNo/ChqNo if present on this line
+            let refText = line.replace(dates[0], '');
+            if (dates[1]) refText = refText.replace(dates[1], '');
+            refText = refText.replace(/(?:Balance|Bal)\s*:?\s*[\d,]+\.\d{2}/i, '');
+            refText = refText.replace(/\b[\d,]+\.\d{2}\s*(?:Cr|Dr|cr|dr|CR|DR)\b/i, '');
+            
+            let chqNo = '';
+            const refCandidateMatch = refText.match(/\b([A-Za-z0-9\/-]{5,})\b/);
+            if (refCandidateMatch) {
+              chqNo = refCandidateMatch[1];
+            }
+
+            // 4. Lookahead if amount/balance are missing on this line
+            let foundSectionC = (amountVal !== '');
+            let j = i + 1;
+            while (!foundSectionC && j < Math.min(lines.length, i + 5)) {
+              if (lines[j]) {
+                const nextLine = lines[j].trim();
+                if (nextLine) {
+                  const nextAmtMatch = nextLine.match(/^\s*([\d,]+\.\d{2})\s*(Cr|Dr|cr|dr|CR|DR)?\s*$/) || nextLine.match(/\b([\d,]+\.\d{2})\s*(Cr|Dr|cr|dr|CR|DR)?\b/i);
+                  if (nextAmtMatch) {
+                    amountVal = nextAmtMatch[1].replace(/,/g, '');
+                    const indicator = nextAmtMatch[2] || 'Cr';
+                    isCr = indicator.toLowerCase() === 'cr';
+
+                    if (isCr) {
+                      creditVal = amountVal;
+                    } else {
+                      debitVal = amountVal;
+                    }
+                    foundSectionC = true;
+                    i = j; // Advance outer index
+                    break;
+                  } else if (nextLine.match(dhanalaxmiDateRegex)) {
+                    break;
+                  }
+                }
+              }
+              j++;
+            }
+
+            // Lookahead for balance separate if we still don't have it
+            if (!balanceVal) {
+              let k = i + 1;
+              while (k < Math.min(lines.length, i + 4)) {
+                if (lines[k]) {
+                  const nextLine = lines[k].trim();
+                  const nextBalMatch = nextLine.match(/(?:Balance|Bal)\s*:?\s*([\d,]+\.\d{2})/i);
+                  if (nextBalMatch) {
+                    balanceVal = nextBalMatch[1].replace(/,/g, '');
+                    break;
+                  } else if (nextLine.match(dhanalaxmiDateRegex)) {
+                    break;
+                  }
+                }
+                k++;
+              }
+            }
+
+            const particulars = descriptionLines.join(' ').trim();
+
+            transactionsExtracted.push({
+              date: formatStandardDateString(txnDate),
+              valueDate: formatStandardDateString(valueDate),
+              particulars: particulars || 'Dhanalaxmi transaction',
+              debits: debitVal,
+              credits: creditVal,
+              balance: balanceVal,
+              category: 'Others',
+              originalPdfBalance: balanceVal,
+              chqNo: (chqNo === '0' || chqNo === '-') ? '' : chqNo,
+              branchName: ''
+            });
+
+            descriptionLines = [];
+            continue;
+          }
+
+          // Gather extra lines as description
+          if (inTable) {
+            if (/^\d+$/.test(line) || lowerLine.startsWith('page') || lowerLine.startsWith('sub total')) {
+              continue;
+            }
+            descriptionLines.push(line);
+          }
+        }
+
+        return transactionsExtracted;
+      }
+
       // Auto-categorize heuristic builder
       function runAutoCategorize() {
         if (transactions.length <= 1) {
@@ -3886,6 +4349,23 @@
                 tx.balance ? parseFloat(tx.balance) : 0
               ]);
             });
+          } else if (selectedBank === 'dhanalaxmi') {
+            headers = ["Row", "Date", "Particulars", "Debits", "Credits", "Balance"];
+            aoaData = [headers];
+            dataList.forEach((tx, sIdx) => {
+              const isOpening = tx.particulars.toLowerCase() === 'opening balance';
+              if (isOpening) {
+                openingRowIndices.add(sIdx + 1);
+              }
+              aoaData.push([
+                sIdx,
+                formatDateToDDMMYYYY(tx.date),
+                isOpening ? 'Opening Balance' : tx.particulars,
+                tx.debits ? parseFloat(tx.debits) : '',
+                tx.credits ? parseFloat(tx.credits) : '',
+                tx.balance ? parseFloat(tx.balance) : 0
+              ]);
+            });
           } else {
             headers = ["Date", "Particulars", "Debit (INR)", "Credit (INR)", "Running Balance (INR)", "Category"];
             aoaData = [headers];
@@ -3951,6 +4431,10 @@
               } else if (selectedBank === 'csb') {
                 isNumeric = (colIdx === 5 || colIdx === 6 || colIdx === 7);
                 if (colIdx === 0 || colIdx === 1 || colIdx === 2 || colIdx === 4) hAlign = 'center';
+                else if (isNumeric) hAlign = 'right';
+              } else if (selectedBank === 'dhanalaxmi') {
+                isNumeric = (colIdx === 3 || colIdx === 4 || colIdx === 5);
+                if (colIdx === 0 || colIdx === 1) hAlign = 'center';
                 else if (isNumeric) hAlign = 'right';
               } else {
                 isNumeric = (colIdx === 2 || colIdx === 3 || colIdx === 4);
