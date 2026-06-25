@@ -2105,12 +2105,9 @@
             const groupedLines = groupCoordsByLine(tContent.items);
             let matchedRows = [];
             if (isDhanalaxmi) {
-              matchedRows = parseDhanalaxmiPdfItems(tContent.items);
-              if (matchedRows.length === 0) {
-                const rawText = convertGroupedLinesToPlainText(groupedLines);
-                const pageLines = rawText.split('\n');
-                matchedRows = parseDhanalaxmiLocalPageLines(pageLines);
-              }
+              const rawText = convertGroupedLinesToPlainText(groupedLines);
+              const pageLines = rawText.split('\n');
+              matchedRows = parseDhanalaxmiLocalPageLines(pageLines);
             }
             if (matchedRows.length === 0) {
               matchedRows = parseTabularSpatialLayout(groupedLines);
@@ -3839,7 +3836,7 @@
 
       function formatStandardDateString(dStr) {
         if (!dStr) return '';
-        const parts = dStr.trim().split(/[\/-]/);
+        const parts = dStr.trim().split('/');
         if (parts.length === 3) {
           const dd = parts[0].padStart(2, '0');
           const mm = parts[1].padStart(2, '0');
@@ -3850,197 +3847,11 @@
         return dStr;
       }
 
-      function parseDhanalaxmiPdfItems(items) {
-        const dateRegex = /\b\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}\b/g;
-        const cleanItems = (items || []).map(it => {
-          const text = (it.str || it.text || '').trim();
-          const transform = it.transform || [];
-          return {
-            text,
-            x: Number(transform[4] || it.x || 0),
-            y: Number(transform[5] || it.y || 0),
-            width: Number(it.width || 0)
-          };
-        }).filter(it => it.text);
-
-        if (cleanItems.length === 0) return [];
-
-        const dateItems = [];
-        cleanItems.forEach(it => {
-          const matches = it.text.match(dateRegex);
-          if (matches) {
-            matches.forEach(match => dateItems.push({ ...it, text: match }));
-          }
-        });
-
-        if (dateItems.length < 2) return [];
-
-        const yGroups = [];
-        dateItems.forEach(it => {
-          let group = yGroups.find(g => Math.abs(g.y - it.y) <= 4);
-          if (!group) {
-            group = { y: it.y, items: [] };
-            yGroups.push(group);
-          }
-          group.items.push(it);
-          group.y = group.items.reduce((sum, item) => sum + item.y, 0) / group.items.length;
-        });
-
-        const usableDateGroups = yGroups
-          .filter(g => g.items.length >= 2)
-          .sort((a, b) => a.y - b.y);
-        if (usableDateGroups.length === 0) return [];
-
-        const txnDateHeader = cleanItems.find(it => /txn\s*date/i.test(it.text));
-        const valueDateHeader = cleanItems.find(it => /value\s*date/i.test(it.text));
-
-        function nearestGroupTo(header, exclusions = []) {
-          if (!header) return null;
-          return usableDateGroups
-            .filter(g => !exclusions.includes(g))
-            .map(g => ({ group: g, dist: Math.abs(g.y - header.y) }))
-            .sort((a, b) => a.dist - b.dist)[0]?.group || null;
-        }
-
-        const txnDateGroup = nearestGroupTo(txnDateHeader) || usableDateGroups[0];
-        const valueDateGroup = nearestGroupTo(valueDateHeader, [txnDateGroup]) ||
-          usableDateGroups.find(g => g !== txnDateGroup) || null;
-
-        const txnDateItems = txnDateGroup.items
-          .slice()
-          .sort((a, b) => a.x - b.x);
-
-        const anchors = [];
-        txnDateItems.forEach(it => {
-          if (!anchors.some(anchor => Math.abs(anchor.x - it.x) <= 8)) {
-            anchors.push({ x: it.x, txnDate: it.text });
-          }
-        });
-
-        if (anchors.length < 2) return [];
-
-        const xDiffs = [];
-        for (let i = 1; i < anchors.length; i++) {
-          const diff = anchors[i].x - anchors[i - 1].x;
-          if (diff > 5) xDiffs.push(diff);
-        }
-        const sortedDiffs = xDiffs.slice().sort((a, b) => a - b);
-        const medianSpacing = sortedDiffs.length ? sortedDiffs[Math.floor(sortedDiffs.length / 2)] : 48;
-        const anchorTolerance = Math.max(28, Math.min(44, medianSpacing * 0.7));
-
-        function nearestAnchorItem(sourceItems, anchorX, maxDistance = anchorTolerance) {
-          return sourceItems
-            .map(it => ({ item: it, dist: Math.abs(it.x - anchorX) }))
-            .filter(hit => hit.dist <= maxDistance)
-            .sort((a, b) => a.dist - b.dist)[0]?.item || null;
-        }
-
-        const valueDateItems = valueDateGroup ? valueDateGroup.items.slice().sort((a, b) => a.x - b.x) : [];
-
-        const amountItems = cleanItems.map(it => {
-          const match = it.text.match(/\b([\d,]+\.\d{2})\s*(Cr|Dr)\b/i);
-          if (!match) return null;
-          return {
-            ...it,
-            amount: match[1].replace(/,/g, ''),
-            type: match[2].toLowerCase()
-          };
-        }).filter(Boolean);
-
-        const balanceItems = cleanItems.map(it => {
-          const match = it.text.match(/Balance\s*:?\s*([\d,]+\.\d{2})/i);
-          if (!match) return null;
-          return {
-            ...it,
-            balance: match[1].replace(/,/g, '')
-          };
-        }).filter(Boolean);
-
-        const refHeader = cleanItems.find(it => /^ref\s*no$/i.test(it.text) || /^refno$/i.test(it.text));
-        const refCandidates = refHeader ? cleanItems.filter(it => {
-          if (it === refHeader) return false;
-          if (!it.text || /^\s+$/.test(it.text)) return false;
-          if (dateRegex.test(it.text)) return false;
-          dateRegex.lastIndex = 0;
-          if (/Balance\s*:/i.test(it.text)) return false;
-          if (/\b[\d,]+\.\d{2}\s*(?:Cr|Dr)\b/i.test(it.text)) return false;
-          return Math.abs(it.y - refHeader.y) <= Math.max(48, medianSpacing);
-        }) : [];
-
-        const descHeader = cleanItems.find(it => /^description$/i.test(it.text));
-        const descUpperY = descHeader ? descHeader.y - 2 : Number.POSITIVE_INFINITY;
-        const descLowerY = (txnDateHeader || txnDateGroup)?.y !== undefined ? (txnDateHeader || txnDateGroup).y + 14 : Number.NEGATIVE_INFINITY;
-
-        function cleanParticulars(text) {
-          return (text || '')
-            .replace(/-\s+/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-        }
-
-        const descriptionBuckets = anchors.map(anchor => ({ anchor, items: [] }));
-        cleanItems.forEach(it => {
-          const lower = it.text.toLowerCase();
-          if (!it.text || it.y <= descLowerY || it.y >= descUpperY) return;
-          if (dateRegex.test(it.text)) {
-            dateRegex.lastIndex = 0;
-            return;
-          }
-          dateRegex.lastIndex = 0;
-          if (/\b[\d,]+\.\d{2}\s*(?:Cr|Dr)\b/i.test(it.text)) return;
-          if (/balance\s*:/i.test(it.text)) return;
-          if (/^(txn amount|refno|txn date|value date|description)$/i.test(it.text)) return;
-          if (lower.includes('available balance') || lower.includes('account number') || lower.includes('product name') || lower.includes('branch name') || lower.includes('account status')) return;
-          if (lower.includes('closing balance includes') || lower.includes('computer generated')) return;
-
-          const nearest = anchors
-            .map((anchor, idx) => ({ idx, dist: Math.abs(it.x - anchor.x) }))
-            .sort((a, b) => a.dist - b.dist)[0];
-          if (nearest && nearest.dist <= anchorTolerance) {
-            descriptionBuckets[nearest.idx].items.push(it);
-          }
-        });
-
-        return anchors.map((anchor, idx) => {
-          const valueDateItem = nearestAnchorItem(valueDateItems, anchor.x);
-          const amountItem = nearestAnchorItem(amountItems, anchor.x);
-          const balanceItem = nearestAnchorItem(balanceItems, anchor.x);
-          const refItem = nearestAnchorItem(refCandidates, anchor.x, Math.max(anchorTolerance, 35));
-
-          const parts = descriptionBuckets[idx].items
-            .slice()
-            .sort((a, b) => a.x - b.x || b.y - a.y)
-            .map(it => it.text);
-
-          const particulars = cleanParticulars(parts.join(' '));
-          const isDebit = amountItem?.type === 'dr';
-
-          return {
-            date: formatStandardDateString(anchor.txnDate),
-            valueDate: formatStandardDateString(valueDateItem?.text || anchor.txnDate),
-            particulars: particulars || 'Dhanalaxmi transaction',
-            debits: isDebit ? amountItem.amount : '',
-            credits: amountItem && !isDebit ? amountItem.amount : '',
-            balance: balanceItem?.balance || '',
-            category: 'Others',
-            originalPdfBalance: balanceItem?.balance || null,
-            amountX: amountItem ? amountItem.x : null,
-            chqNo: refItem && refItem.text !== '0' && refItem.text !== '-' ? refItem.text : '',
-            branchName: ''
-          };
-        }).filter(tx => {
-          const dVal = parseFloat(tx.debits) || 0;
-          const cVal = parseFloat(tx.credits) || 0;
-          const bVal = parseFloat(tx.balance);
-          return (dVal > 0 || cVal > 0) && !isNaN(bVal);
-        });
-      }
-
       function parseDhanalaxmiLocalPageLines(lines) {
         let transactionsExtracted = [];
         let inTable = false;
         let descriptionLines = [];
-        const dhanalaxmiDateRegex = /\b(\d{1,2}[\/-]\d{1,2}[\/-]\d{4})\b/g;
+        const dhanalaxmiDateRegex = /\b(\d{1,2}\/\d{1,2}\/\d{4})\b/g;
 
         for (let i = 0; i < lines.length; i++) {
           const line = lines[i].trim();
@@ -4350,19 +4161,23 @@
               ]);
             });
           } else if (selectedBank === 'dhanalaxmi') {
-            headers = ["Row", "Date", "Particulars", "Debits", "Credits", "Balance"];
+            headers = ["S.No", "Transaction Date", "Value Date", "Description", "RefNo", "Debit Amount(INR)", "Credit Amount(INR)", "Balance(INR)"];
             aoaData = [headers];
+            let seq = 1;
             dataList.forEach((tx, sIdx) => {
               const isOpening = tx.particulars.toLowerCase() === 'opening balance';
               if (isOpening) {
                 openingRowIndices.add(sIdx + 1);
               }
+              const serialNo = isOpening ? '' : (tx.sNo || seq++);
               aoaData.push([
-                sIdx,
+                serialNo,
                 formatDateToDDMMYYYY(tx.date),
-                isOpening ? 'Opening Balance' : tx.particulars,
-                tx.debits ? parseFloat(tx.debits) : '',
-                tx.credits ? parseFloat(tx.credits) : '',
+                formatDateToDDMMYYYY(tx.valueDate || tx.date),
+                isOpening ? tx.particulars.toUpperCase() : tx.particulars,
+                isOpening ? '' : (tx.chqNo || '0'),
+                tx.debits ? parseFloat(tx.debits) : (isOpening ? 0 : ''),
+                tx.credits ? parseFloat(tx.credits) : (isOpening ? 0 : ''),
                 tx.balance ? parseFloat(tx.balance) : 0
               ]);
             });
@@ -4433,8 +4248,8 @@
                 if (colIdx === 0 || colIdx === 1 || colIdx === 2 || colIdx === 4) hAlign = 'center';
                 else if (isNumeric) hAlign = 'right';
               } else if (selectedBank === 'dhanalaxmi') {
-                isNumeric = (colIdx === 3 || colIdx === 4 || colIdx === 5);
-                if (colIdx === 0 || colIdx === 1) hAlign = 'center';
+                isNumeric = (colIdx === 5 || colIdx === 6 || colIdx === 7);
+                if (colIdx === 0 || colIdx === 1 || colIdx === 2 || colIdx === 4) hAlign = 'center';
                 else if (isNumeric) hAlign = 'right';
               } else {
                 isNumeric = (colIdx === 2 || colIdx === 3 || colIdx === 4);
