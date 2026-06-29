@@ -2104,10 +2104,16 @@
             addLog(`Parsed text layout coordinates on page ${idx}.`);
             const groupedLines = groupCoordsByLine(tContent.items);
             let matchedRows = [];
-            if (isDhanalaxmi) {
-              const rawText = convertGroupedLinesToPlainText(groupedLines);
-              const pageLines = rawText.split('\n');
-              matchedRows = parseDhanalaxmiLocalPageLines(pageLines);
+            if (selectedBank === 'axis') {
+              matchedRows = parseAxisBankPageLines(groupedLines);
+            }
+            if (matchedRows.length === 0 && isDhanalaxmi) {
+              matchedRows = parseDhanalaxmiPdfItems(tContent.items);
+              if (matchedRows.length === 0) {
+                const rawText = convertGroupedLinesToPlainText(groupedLines);
+                const pageLines = rawText.split('\n');
+                matchedRows = parseDhanalaxmiLocalPageLines(pageLines);
+              }
             }
             if (matchedRows.length === 0) {
               matchedRows = parseTabularSpatialLayout(groupedLines);
@@ -3836,7 +3842,7 @@
 
       function formatStandardDateString(dStr) {
         if (!dStr) return '';
-        const parts = dStr.trim().split('/');
+        const parts = dStr.trim().split(/[\/-]/);
         if (parts.length === 3) {
           const dd = parts[0].padStart(2, '0');
           const mm = parts[1].padStart(2, '0');
@@ -3847,11 +3853,419 @@
         return dStr;
       }
 
+      function parseAxisBankPageLines(lines) {
+        const lineTexts = (lines || []).map(row => {
+          return row.items.map(it => it.text).join(' ').replace(/\s+/g, ' ').trim();
+        }).filter(Boolean);
+
+        const joined = lineTexts.join('\n');
+        if (/S\.NO\s+Transaction/i.test(joined)) {
+          return parseAxisReportLines(lineTexts);
+        }
+        if (/Tran Date\s+Value Date\s+Transaction Particulars/i.test(joined)) {
+          return parseAxisLegacyLines(lineTexts);
+        }
+        return [];
+      }
+
+      function parseAxisAmount(text) {
+        if (!text) return 0;
+        return Number(String(text).replace(/,/g, ''));
+      }
+
+      function cleanAxisParticulars(text) {
+        return (text || '')
+          .replace(/\b\d{1,2}[-\/]\d{1,2}[-\/]\d{4}\b/g, ' ')
+          .replace(/\b(?:\d{1,3}(?:,\d{2,3})+|\d+)\.\d{2}\b/g, ' ')
+          .replace(/\b(?:DR|CR)\b/gi, ' ')
+          .replace(/\b\d{6}\b/g, ' ')
+          .replace(/\bMALAPPURAM\s*\[KL\](?:\s*\(\d+\))?/gi, ' ')
+          .replace(/\bMAJESTIC,\s*BANGALORE\s*\[KT\](?:\s*\(\d+\))?/gi, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+      }
+
+      function isAxisFooterOrHeaderLine(text) {
+        const t = (text || '').toLowerCase();
+        return !t ||
+          t.includes('statement of axis') ||
+          t.includes('account statement report') ||
+          t.includes('tran date value date') ||
+          t.includes('s.no transaction') ||
+          t === 'date (dd/mm/yyyy) amount(inr) amount(inr)' ||
+          t === '(dd/mm/yyyy)' ||
+          t.includes('transaction total dr/cr') ||
+          t.includes('closing balance') ||
+          t.includes('cheque return details') ||
+          t.includes('transaction type cheque no') ||
+          t.includes('unless the constituent') ||
+          t.includes('he/she has found') ||
+          t.includes('closing balance as shown') ||
+          t.includes('axis bank does not ask') ||
+          t.includes('deposit insurance') ||
+          t.includes('registered office') ||
+          t.includes('branch address') ||
+          t.includes('legend') ||
+          t.includes('++++ end');
+      }
+
+      function assignAxisDebitCreditByBalance(tx, runningBalance) {
+        const amount = parseAxisAmount(tx._amount);
+        const balance = parseAxisAmount(tx.balance);
+        if (!amount || !Number.isFinite(balance)) return balance || runningBalance;
+
+        const diff = balance - runningBalance;
+        if (Math.abs(Math.abs(diff) - amount) < 1.0) {
+          if (diff >= 0) {
+            tx.credits = amount.toFixed(2);
+            tx.debits = '';
+          } else {
+            tx.debits = amount.toFixed(2);
+            tx.credits = '';
+          }
+        } else if (!tx.debits && !tx.credits) {
+          tx.debits = amount.toFixed(2);
+        }
+        return Number.isFinite(balance) ? balance : runningBalance;
+      }
+
+      function parseAxisLegacyLines(lineTexts) {
+        const rows = [];
+        let inTable = false;
+        let pendingParts = [];
+        const openingRe = /OPENING BALANCE\s+((?:\d{1,3}(?:,\d{2,3})+|\d+)\.\d{2})/i;
+        const txRe = /^(\d{1,2}-\d{1,2}-\d{4})\s+(\d{1,2}-\d{1,2}-\d{4})\s+(.+?)\s+((?:\d{1,3}(?:,\d{2,3})+|\d+)\.\d{2})\s+(DR|CR)\s+((?:\d{1,3}(?:,\d{2,3})+|\d+)\.\d{2})\b/i;
+
+        for (const text of lineTexts) {
+          if (/Tran Date\s+Value Date\s+Transaction Particulars/i.test(text)) {
+            inTable = true;
+            pendingParts = [];
+            continue;
+          }
+          if (!inTable) continue;
+          if (openingRe.test(text)) continue;
+          if (/TRANSACTION TOTAL DR\/CR|CLOSING BALANCE/i.test(text)) break;
+          if (isAxisFooterOrHeaderLine(text)) continue;
+
+          const txMatch = text.match(txRe);
+          if (txMatch) {
+            const [, date, valueDate, inlinePart, amountRaw, marker, balanceRaw] = txMatch;
+            const particulars = cleanAxisParticulars([...pendingParts, inlinePart].join(' '));
+            const amount = parseAxisAmount(amountRaw);
+            const balance = parseAxisAmount(balanceRaw).toFixed(2);
+
+            rows.push({
+              date: formatStandardDateString(date),
+              valueDate: formatStandardDateString(valueDate),
+              particulars: particulars || 'Axis transaction',
+              debits: marker.toUpperCase() === 'DR' ? amount.toFixed(2) : '',
+              credits: marker.toUpperCase() === 'CR' ? amount.toFixed(2) : '',
+              balance,
+              category: 'Others',
+              originalPdfBalance: balance,
+              chqNo: (text.match(/\s(\d{6})\s+(?=(?:\d{1,3}(?:,\d{2,3})+|\d+)\.\d{2}\s+(?:DR|CR)\b)/i) || [])[1] || '',
+              branchName: ''
+            });
+            pendingParts = [];
+          } else {
+            const cleaned = cleanAxisParticulars(text);
+            if (cleaned) pendingParts.push(cleaned);
+          }
+        }
+
+        return rows;
+      }
+
+      function parseAxisReportLines(lineTexts) {
+        const rows = [];
+        let inTable = false;
+        let runningBalance = null;
+        const openingRe = /Opening Balance:\s*INR\s*((?:\d{1,3}(?:,\d{2,3})+|\d+)\.\d{2})/i;
+        const anchorRe = /^(\d+)\s+(\d{1,2}\/\d{1,2}\/\d{4})\s+(\d{1,2}\/\d{1,2}\/\d{4})(?:\s+(.*))?$/;
+        const amountRe = /\b(?:\d{1,3}(?:,\d{2,3})+|\d+)\.\d{2}\b/g;
+        const anchors = [];
+
+        for (let i = 0; i < lineTexts.length; i++) {
+          const text = lineTexts[i];
+          const opening = text.match(openingRe);
+          if (opening) {
+            runningBalance = parseAxisAmount(opening[1]);
+          }
+          if (/S\.NO\s+Transaction/i.test(text)) {
+            inTable = true;
+            continue;
+          }
+          if (inTable && anchorRe.test(text)) {
+            anchors.push({ index: i, match: text.match(anchorRe) });
+          }
+          if (inTable && /TRANSACTION TOTAL DR\/CR|Closing Balance/i.test(text)) break;
+        }
+
+        if (anchors.length === 0) return rows;
+
+        function isTopLineForAnchor(idx, previousAnchorIndex) {
+          if (idx <= previousAnchorIndex || idx < 0) return false;
+          const text = lineTexts[idx] || '';
+          if (anchorRe.test(text) || isAxisFooterOrHeaderLine(text)) return false;
+          const amounts = text.match(amountRe) || [];
+          return amounts.length >= 2;
+        }
+
+        const topLines = new Map();
+        anchors.forEach((anchor, idx) => {
+          const prevAnchorIndex = idx > 0 ? anchors[idx - 1].index : -1;
+          const topIdx = anchor.index - 1;
+          if (isTopLineForAnchor(topIdx, prevAnchorIndex)) {
+            topLines.set(anchor.index, topIdx);
+          }
+        });
+
+        anchors.forEach((anchor, idx) => {
+          const nextAnchor = anchors[idx + 1];
+          const nextTop = nextAnchor ? topLines.get(nextAnchor.index) : null;
+          const start = topLines.get(anchor.index) ?? anchor.index;
+          const stopIndex = lineTexts.findIndex((text, textIdx) => {
+            return textIdx > anchor.index && /TRANSACTION TOTAL DR\/CR|Closing Balance|Cheque Return Details|Unless the constituent/i.test(text);
+          });
+          const naturalEnd = nextAnchor ? ((nextTop !== null && nextTop !== undefined) ? nextTop - 1 : nextAnchor.index - 1) : lineTexts.length - 1;
+          const end = stopIndex > -1 ? Math.min(naturalEnd, stopIndex - 1) : naturalEnd;
+          const blockLines = [];
+
+          for (let i = start; i <= end; i++) {
+            const text = lineTexts[i] || '';
+            if (!text || isAxisFooterOrHeaderLine(text)) continue;
+            if (/^(\d+)\s+TRANSACTION TOTAL DR\/CR/i.test(text)) continue;
+            blockLines.push(text);
+          }
+
+          const [, sNo, date, valueDate] = anchor.match;
+          const amountMatches = blockLines.join(' ').match(amountRe) || [];
+          if (amountMatches.length < 2) return;
+
+          const amountRaw = amountMatches[0];
+          const balanceRaw = amountMatches[amountMatches.length - 1];
+          const parts = blockLines.map(text => {
+            const anchorLineMatch = text.match(anchorRe);
+            return anchorLineMatch ? (anchorLineMatch[4] || '') : text;
+          });
+          const particulars = cleanAxisParticulars(parts.join(' '));
+          if (!particulars || /transaction total/i.test(particulars)) return;
+
+          const balance = parseAxisAmount(balanceRaw).toFixed(2);
+          const tx = {
+            date: formatStandardDateString(date),
+            valueDate: formatStandardDateString(valueDate),
+            particulars,
+            debits: '',
+            credits: '',
+            balance,
+            category: 'Others',
+            originalPdfBalance: balance,
+            sNo: parseInt(sNo, 10),
+            chqNo: (blockLines.join(' ').match(/\b(\d{6})\b/) || [])[1] || '',
+            branchName: ''
+          };
+
+          tx._amount = amountRaw;
+          runningBalance = assignAxisDebitCreditByBalance(tx, runningBalance ?? 0);
+          delete tx._amount;
+          rows.push(tx);
+        });
+
+        return rows;
+      }
+
+      function parseDhanalaxmiPdfItems(items) {
+        const dateRegex = /\b\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}\b/g;
+        const cleanItems = (items || []).map(it => {
+          const text = (it.str || it.text || '').trim();
+          const transform = it.transform || [];
+          return {
+            text,
+            x: Number(transform[4] || it.x || 0),
+            y: Number(transform[5] || it.y || 0),
+            width: Number(it.width || 0)
+          };
+        }).filter(it => it.text);
+
+        if (cleanItems.length === 0) return [];
+
+        const dateItems = [];
+        cleanItems.forEach(it => {
+          const matches = it.text.match(dateRegex);
+          if (matches) {
+            matches.forEach(match => dateItems.push({ ...it, text: match }));
+          }
+        });
+
+        if (dateItems.length < 2) return [];
+
+        const yGroups = [];
+        dateItems.forEach(it => {
+          let group = yGroups.find(g => Math.abs(g.y - it.y) <= 4);
+          if (!group) {
+            group = { y: it.y, items: [] };
+            yGroups.push(group);
+          }
+          group.items.push(it);
+          group.y = group.items.reduce((sum, item) => sum + item.y, 0) / group.items.length;
+        });
+
+        const usableDateGroups = yGroups
+          .filter(g => g.items.length >= 2)
+          .sort((a, b) => a.y - b.y);
+        if (usableDateGroups.length === 0) return [];
+
+        const txnDateHeader = cleanItems.find(it => /txn\s*date/i.test(it.text));
+        const valueDateHeader = cleanItems.find(it => /value\s*date/i.test(it.text));
+
+        function nearestGroupTo(header, exclusions = []) {
+          if (!header) return null;
+          return usableDateGroups
+            .filter(g => !exclusions.includes(g))
+            .map(g => ({ group: g, dist: Math.abs(g.y - header.y) }))
+            .sort((a, b) => a.dist - b.dist)[0]?.group || null;
+        }
+
+        const txnDateGroup = nearestGroupTo(txnDateHeader) || usableDateGroups[0];
+        const valueDateGroup = nearestGroupTo(valueDateHeader, [txnDateGroup]) ||
+          usableDateGroups.find(g => g !== txnDateGroup) || null;
+
+        const txnDateItems = txnDateGroup.items
+          .slice()
+          .sort((a, b) => a.x - b.x);
+
+        const anchors = [];
+        txnDateItems.forEach(it => {
+          if (!anchors.some(anchor => Math.abs(anchor.x - it.x) <= 8)) {
+            anchors.push({ x: it.x, txnDate: it.text });
+          }
+        });
+
+        if (anchors.length < 2) return [];
+
+        const xDiffs = [];
+        for (let i = 1; i < anchors.length; i++) {
+          const diff = anchors[i].x - anchors[i - 1].x;
+          if (diff > 5) xDiffs.push(diff);
+        }
+        const sortedDiffs = xDiffs.slice().sort((a, b) => a - b);
+        const medianSpacing = sortedDiffs.length ? sortedDiffs[Math.floor(sortedDiffs.length / 2)] : 48;
+        const anchorTolerance = Math.max(28, Math.min(44, medianSpacing * 0.7));
+
+        function nearestAnchorItem(sourceItems, anchorX, maxDistance = anchorTolerance) {
+          return sourceItems
+            .map(it => ({ item: it, dist: Math.abs(it.x - anchorX) }))
+            .filter(hit => hit.dist <= maxDistance)
+            .sort((a, b) => a.dist - b.dist)[0]?.item || null;
+        }
+
+        const valueDateItems = valueDateGroup ? valueDateGroup.items.slice().sort((a, b) => a.x - b.x) : [];
+
+        const amountItems = cleanItems.map(it => {
+          const match = it.text.match(/\b([\d,]+\.\d{2})\s*(Cr|Dr)\b/i);
+          if (!match) return null;
+          return {
+            ...it,
+            amount: match[1].replace(/,/g, ''),
+            type: match[2].toLowerCase()
+          };
+        }).filter(Boolean);
+
+        const balanceItems = cleanItems.map(it => {
+          const match = it.text.match(/Balance\s*:?\s*([\d,]+\.\d{2})/i);
+          if (!match) return null;
+          return {
+            ...it,
+            balance: match[1].replace(/,/g, '')
+          };
+        }).filter(Boolean);
+
+        const refHeader = cleanItems.find(it => /^ref\s*no$/i.test(it.text) || /^refno$/i.test(it.text));
+        const refCandidates = refHeader ? cleanItems.filter(it => {
+          if (it === refHeader) return false;
+          if (!it.text || /^\s+$/.test(it.text)) return false;
+          if (dateRegex.test(it.text)) return false;
+          dateRegex.lastIndex = 0;
+          if (/Balance\s*:/i.test(it.text)) return false;
+          if (/\b[\d,]+\.\d{2}\s*(?:Cr|Dr)\b/i.test(it.text)) return false;
+          return Math.abs(it.y - refHeader.y) <= Math.max(48, medianSpacing);
+        }) : [];
+
+        const descHeader = cleanItems.find(it => /^description$/i.test(it.text));
+        const descUpperY = descHeader ? descHeader.y - 2 : Number.POSITIVE_INFINITY;
+        const descLowerY = (txnDateHeader || txnDateGroup)?.y !== undefined ? (txnDateHeader || txnDateGroup).y + 14 : Number.NEGATIVE_INFINITY;
+
+        function cleanParticulars(text) {
+          return (text || '')
+            .replace(/-\s+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        }
+
+        const descriptionBuckets = anchors.map(anchor => ({ anchor, items: [] }));
+        cleanItems.forEach(it => {
+          const lower = it.text.toLowerCase();
+          if (!it.text || it.y <= descLowerY || it.y >= descUpperY) return;
+          if (dateRegex.test(it.text)) {
+            dateRegex.lastIndex = 0;
+            return;
+          }
+          dateRegex.lastIndex = 0;
+          if (/\b[\d,]+\.\d{2}\s*(?:Cr|Dr)\b/i.test(it.text)) return;
+          if (/balance\s*:/i.test(it.text)) return;
+          if (/^(txn amount|refno|txn date|value date|description)$/i.test(it.text)) return;
+          if (lower.includes('available balance') || lower.includes('account number') || lower.includes('product name') || lower.includes('branch name') || lower.includes('account status')) return;
+          if (lower.includes('closing balance includes') || lower.includes('computer generated')) return;
+
+          const nearest = anchors
+            .map((anchor, idx) => ({ idx, dist: Math.abs(it.x - anchor.x) }))
+            .sort((a, b) => a.dist - b.dist)[0];
+          if (nearest && nearest.dist <= anchorTolerance) {
+            descriptionBuckets[nearest.idx].items.push(it);
+          }
+        });
+
+        return anchors.map((anchor, idx) => {
+          const valueDateItem = nearestAnchorItem(valueDateItems, anchor.x);
+          const amountItem = nearestAnchorItem(amountItems, anchor.x);
+          const balanceItem = nearestAnchorItem(balanceItems, anchor.x);
+          const refItem = nearestAnchorItem(refCandidates, anchor.x, Math.max(anchorTolerance, 35));
+
+          const parts = descriptionBuckets[idx].items
+            .slice()
+            .sort((a, b) => a.x - b.x || b.y - a.y)
+            .map(it => it.text);
+
+          const particulars = cleanParticulars(parts.join(' '));
+          const isDebit = amountItem?.type === 'dr';
+
+          return {
+            date: formatStandardDateString(anchor.txnDate),
+            valueDate: formatStandardDateString(valueDateItem?.text || anchor.txnDate),
+            particulars: particulars || 'Dhanalaxmi transaction',
+            debits: isDebit ? amountItem.amount : '',
+            credits: amountItem && !isDebit ? amountItem.amount : '',
+            balance: balanceItem?.balance || '',
+            category: 'Others',
+            originalPdfBalance: balanceItem?.balance || null,
+            amountX: amountItem ? amountItem.x : null,
+            chqNo: refItem && refItem.text !== '0' && refItem.text !== '-' ? refItem.text : '',
+            branchName: ''
+          };
+        }).filter(tx => {
+          const dVal = parseFloat(tx.debits) || 0;
+          const cVal = parseFloat(tx.credits) || 0;
+          const bVal = parseFloat(tx.balance);
+          return (dVal > 0 || cVal > 0) && !isNaN(bVal);
+        });
+      }
+
       function parseDhanalaxmiLocalPageLines(lines) {
         let transactionsExtracted = [];
         let inTable = false;
         let descriptionLines = [];
-        const dhanalaxmiDateRegex = /\b(\d{1,2}\/\d{1,2}\/\d{4})\b/g;
+        const dhanalaxmiDateRegex = /\b(\d{1,2}[\/-]\d{1,2}[\/-]\d{4})\b/g;
 
         for (let i = 0; i < lines.length; i++) {
           const line = lines[i].trim();
@@ -4111,6 +4525,7 @@
         const wb = XLSX.utils.book_new();
 
         const openingRowIndices = new Set();
+        const totalRowIndices = new Set();
 
         function createStyledWorksheet(dataList) {
           // Headers definitions
@@ -4118,27 +4533,25 @@
           let aoaData;
 
           if (selectedBank === 'axis') {
-            headers = ["S.No", "Transaction Date", "Value Date", "Particulars", "Debit Amount(INR)", "Credit Amount(INR)", "Balance(INR)", "Cheque Number", "Branch Name(SOL)"];
+            headers = ["Date", "Particulars", "Debit", "Credit", "Running Balance"];
             aoaData = [headers];
-            let seq = 1;
             dataList.forEach((tx, sIdx) => {
               const isOpening = tx.particulars.toLowerCase() === 'opening balance';
               if (isOpening) {
                 openingRowIndices.add(sIdx + 1);
               }
-              const serialNo = isOpening ? '' : (tx.sNo || seq++);
               aoaData.push([
-                serialNo,
                 formatDateToDDMMYYYY(tx.date),
-                formatDateToDDMMYYYY(tx.valueDate || tx.date),
                 isOpening ? tx.particulars.toUpperCase() : tx.particulars,
                 tx.debits ? parseFloat(tx.debits) : (isOpening ? 0 : ''),
                 tx.credits ? parseFloat(tx.credits) : (isOpening ? 0 : ''),
-                tx.balance ? parseFloat(tx.balance) : 0,
-                isOpening ? '' : (tx.chqNo || ''),
-                isOpening ? '' : (tx.branchName || '')
+                tx.balance ? parseFloat(tx.balance) : 0
               ]);
             });
+            const totalDebits = dataList.reduce((sum, tx) => sum + (tx.particulars.toLowerCase() === 'opening balance' ? 0 : (parseFloat(tx.debits) || 0)), 0);
+            const totalCredits = dataList.reduce((sum, tx) => sum + (tx.particulars.toLowerCase() === 'opening balance' ? 0 : (parseFloat(tx.credits) || 0)), 0);
+            aoaData.push(['', '', totalDebits, totalCredits, '']);
+            totalRowIndices.add(aoaData.length - 1);
           } else if (selectedBank === 'csb') {
             headers = ["Sl.No.", "Post Date", "Value Date", "Particulars", "Chq.No.", "Debit (Withdrawals)", "Credit (Deposits)", "Balance"];
             aoaData = [headers];
@@ -4161,23 +4574,19 @@
               ]);
             });
           } else if (selectedBank === 'dhanalaxmi') {
-            headers = ["S.No", "Transaction Date", "Value Date", "Description", "RefNo", "Debit Amount(INR)", "Credit Amount(INR)", "Balance(INR)"];
+            headers = ["Row", "Date", "Particulars", "Debits", "Credits", "Balance"];
             aoaData = [headers];
-            let seq = 1;
             dataList.forEach((tx, sIdx) => {
               const isOpening = tx.particulars.toLowerCase() === 'opening balance';
               if (isOpening) {
                 openingRowIndices.add(sIdx + 1);
               }
-              const serialNo = isOpening ? '' : (tx.sNo || seq++);
               aoaData.push([
-                serialNo,
+                sIdx,
                 formatDateToDDMMYYYY(tx.date),
-                formatDateToDDMMYYYY(tx.valueDate || tx.date),
-                isOpening ? tx.particulars.toUpperCase() : tx.particulars,
-                isOpening ? '' : (tx.chqNo || '0'),
-                tx.debits ? parseFloat(tx.debits) : (isOpening ? 0 : ''),
-                tx.credits ? parseFloat(tx.credits) : (isOpening ? 0 : ''),
+                isOpening ? 'Opening Balance' : tx.particulars,
+                tx.debits ? parseFloat(tx.debits) : '',
+                tx.credits ? parseFloat(tx.credits) : '',
                 tx.balance ? parseFloat(tx.balance) : 0
               ]);
             });
@@ -4240,16 +4649,16 @@
               let hAlign = 'left';
 
               if (selectedBank === 'axis') {
-                isNumeric = (colIdx === 4 || colIdx === 5 || colIdx === 6);
-                if (colIdx === 0 || colIdx === 1 || colIdx === 2 || colIdx === 7) hAlign = 'center';
+                isNumeric = (colIdx === 2 || colIdx === 3 || colIdx === 4);
+                if (colIdx === 0) hAlign = 'center';
                 else if (isNumeric) hAlign = 'right';
               } else if (selectedBank === 'csb') {
                 isNumeric = (colIdx === 5 || colIdx === 6 || colIdx === 7);
                 if (colIdx === 0 || colIdx === 1 || colIdx === 2 || colIdx === 4) hAlign = 'center';
                 else if (isNumeric) hAlign = 'right';
               } else if (selectedBank === 'dhanalaxmi') {
-                isNumeric = (colIdx === 5 || colIdx === 6 || colIdx === 7);
-                if (colIdx === 0 || colIdx === 1 || colIdx === 2 || colIdx === 4) hAlign = 'center';
+                isNumeric = (colIdx === 3 || colIdx === 4 || colIdx === 5);
+                if (colIdx === 0 || colIdx === 1) hAlign = 'center';
                 else if (isNumeric) hAlign = 'right';
               } else {
                 isNumeric = (colIdx === 2 || colIdx === 3 || colIdx === 4);
@@ -4258,15 +4667,16 @@
               }
 
               const isOpeningRow = openingRowIndices.has(rowIdx);
+              const isTotalRow = totalRowIndices.has(rowIdx);
 
               cell.s = {
                 font: {
                   name: 'Times New Roman',
                   sz: 11,
-                  bold: isOpeningRow,
+                  bold: isOpeningRow || isTotalRow,
                   italic: isOpeningRow
                 },
-                fill: isOpeningRow ? { fgColor: { rgb: 'F1F5F9' } } : undefined,
+                fill: isOpeningRow || isTotalRow ? { fgColor: { rgb: 'F1F5F9' } } : undefined,
                 alignment: {
                   vertical: 'center',
                   horizontal: hAlign
@@ -4338,7 +4748,7 @@
           }
         } else {
           const ws = createStyledWorksheet(transactions);
-          XLSX.utils.book_append_sheet(wb, ws, "Statement Details");
+          XLSX.utils.book_append_sheet(wb, ws, selectedBank === 'axis' ? "Bank stmt" : "Statement Details");
         }
 
         try {
